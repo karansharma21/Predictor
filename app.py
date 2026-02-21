@@ -1,6 +1,7 @@
 import streamlit as st
 
 # --- 1. EMERGENCY FIX FOR PYTHON 3.13 ---
+# This bypasses the 'pkg_resources' error in the vedastro library
 try:
     import pkg_resources
 except ImportError:
@@ -13,6 +14,7 @@ except ImportError:
 # -------------------------------------
 
 from vedastro import *
+import VedAstro
 import datetime
 
 # --- 2. APP CONFIGURATION ---
@@ -30,21 +32,21 @@ lon = st.sidebar.number_input("Longitude", value=77.59, format="%.4f")
 mode = st.sidebar.selectbox("View Mode", ["Daily", "Weekly"])
 
 # --- 4. DATA INITIALIZATION ---
-# Formats the inputs for the VedAstro Engine
 birth_dt_str = f"{birth_time_input.strftime('%H:%M')} {birth_date.strftime('%d/%m/%Y')} {timezone}"
 location = GeoLocation(name, lon, lat)
 birth_time = Time(birth_dt_str, location)
 
 def run_forecast(target_date):
-    # Sync target date to UTC for transit calculation
+    # Set current time for transit
     now_str = target_date.strftime("%H:%M %d/%m/%Y +00:00")
     current_time = Time(now_str, location)
     
-    # A. Tara Bala (Soul Filter) - Using the correct library calls
-    birth_nak = AstronomicalCalculator.GetMoonNakshatra(birth_time)
-    today_nak = AstronomicalCalculator.GetMoonNakshatra(current_time)
+    # A. Tara Bala (Soul Filter) 
+    # Using fully qualified names to avoid attribute errors
+    birth_nak = VedAstro.AstronomicalCalculator.GetMoonNakshatra(birth_time)
+    today_nak = VedAstro.AstronomicalCalculator.GetMoonNakshatra(current_time)
     
-    # Extracting the 1-27 index
+    # Accessing the numeric values
     b_num = int(birth_nak.NakshatraName.value__)
     t_num = int(today_nak.NakshatraName.value__)
     
@@ -61,14 +63,10 @@ def run_forecast(target_date):
     day_color = color_map.get(str(day_of_week), "White")
     
     # C. Scoring Logic
-    # Moon Transit House relative to Birth Moon
     m_house = Calculate.PlanetTransitHouse(PlanetName.Moon, birth_time, current_time)
-    
-    # Points based on personal chart (Ashtakavarga)
     m_bindu = Calculate.BhinnashtakavargaChart(birth_time).GetPoints(PlanetName.Moon, current_time)
     
-    # Total Score Calculation
-    score = 40 # Baseline
+    score = 40 
     score += 30 if tara_num in [2,4,6,8,9] else 10
     score += 20 if str(m_house) in ["House1", "House3", "House6", "House11"] else 5
     score += 10 if int(m_bindu) >= 5 else 0
@@ -80,27 +78,29 @@ def run_forecast(target_date):
     return score, day_color, rahu_kaal, hora
 
 # --- 5. UI DISPLAY ---
-if mode == "Daily":
-    score, color, rahu, hora = run_forecast(datetime.datetime.now())
-    st.metric("Power Score", f"{score}/100")
-    st.progress(score / 100)
-    
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Timing")
-        st.write(f"✨ **Current Hora:** {hora}")
-        st.write(f"🚫 **Rahu Kaal:** {rahu}")
-    with c2:
-        st.subheader("Remedy")
-        st.write(f"🎨 **Best Color:** {color}")
-        st.write(f"📅 **Weekday:** {Calculate.DayOfWeek(Time(datetime.datetime.now().strftime('%H:%M %d/%m/%Y +00:00'), location))}")
+try:
+    if mode == "Daily":
+        score, color, rahu, hora = run_forecast(datetime.datetime.now())
+        st.metric("Power Score", f"{score}/100")
+        st.progress(score / 100)
+        
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"✨ **Hora:** {hora}")
+            st.write(f"🚫 **Rahu Kaal:** {rahu}")
+        with col2:
+            st.write(f"🎨 **Wear:** {color}")
+            st.write(f"📅 **Day:** {Calculate.DayOfWeek(Time(datetime.datetime.now().strftime('%H:%M %d/%m/%Y +00:00'), location))}")
 
-else:
-    st.subheader("7-Day Power Outlook")
-    for i in range(7):
-        d = datetime.datetime.now() + datetime.timedelta(days=i)
-        s, c, _, _ = run_forecast(d)
-        st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
+    else:
+        st.subheader("7-Day Power Outlook")
+        for i in range(7):
+            d = datetime.datetime.now() + datetime.timedelta(days=i)
+            s, c, _, _ = run_forecast(d)
+            st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
-st.caption("Data powered by VedAstro. Calculations optimized for iPhone Home Screen.")
+except Exception as e:
+    st.error(f"Engine is warming up. If this persists, check inputs. Error: {e}")
+
+st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
