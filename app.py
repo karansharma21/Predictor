@@ -21,7 +21,7 @@ st.set_page_config(page_title="Vedic Daily Engine", page_icon="☸️", layout="
 # --- 4. SIDEBAR & LOCATION DISCOVERY ---
 @st.cache_data
 def get_geo_details(city_name):
-    """Fetches Geo details and handles the list return from VedAstro"""
+    """Fetches Geo details safely"""
     try:
         results = GeoLocation.GetGeoLocation(city_name)
         if results and len(results) > 0:
@@ -30,16 +30,22 @@ def get_geo_details(city_name):
         pass
     return None
 
+def get_tz_safe(geo_obj):
+    """Safely gets timezone string to prevent AttributeErrors"""
+    for attr in ['TimezoneStr', 'Timezone', 'timezone']:
+        if hasattr(geo_obj, attr):
+            val = getattr(geo_obj, attr)
+            return str(val)
+    return "+00:00"
+
 st.sidebar.header("📍 Current Location")
-st.sidebar.caption("For today's timing (Rahu Kaal)")
 curr_city_input = st.sidebar.text_input("Current City", "London")
 geo_curr = get_geo_details(curr_city_input) or GeoLocation("London", -0.1278, 51.5074)
-st.sidebar.write(f"🌐 {geo_curr.Name} ({geo_curr.TimezoneStr})")
+st.sidebar.write(f"🌐 {geo_curr.Name} ({get_tz_safe(geo_curr)})")
 
 st.sidebar.divider()
 
 st.sidebar.header("👶 Birth Details")
-st.sidebar.caption("For your soul's blueprint")
 birth_city_input = st.sidebar.text_input("Birth City", "Mumbai")
 geo_birth = get_geo_details(birth_city_input) or GeoLocation("Mumbai", 72.8777, 19.0760)
 
@@ -48,62 +54,51 @@ birth_time_input = st.sidebar.time_input("Birth Time", datetime.time(10, 30))
 st.sidebar.write(f"🕉️ Born in: {geo_birth.Name}")
 
 # --- 5. ENGINE CORE ---
-def get_cosmic_data(g_birth, g_curr, b_date, b_time_in):
-    # A. Setup Birth Time (Fixed to Birth Location)
-    birth_dt_str = f"{b_time_in.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {g_birth.TimezoneStr}"
+def get_cosmic_data(g_birth, g_curr, b_date, b_time_in, target_dt=None):
+    if target_dt is None:
+        target_dt = datetime.datetime.now()
+        
+    tz_birth = get_tz_safe(g_birth)
+    tz_curr = get_tz_safe(g_curr)
+    
+    # Setup Birth Time
+    birth_dt_str = f"{b_time_in.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {tz_birth}"
     b_time = Time(birth_dt_str, g_birth)
     
-    # B. Setup Current Time (Fixed to Current Location)
-    now = datetime.datetime.now()
-    now_str = now.strftime("%H:%M %d/%m/%Y ") + g_curr.TimezoneStr
+    # Setup Target Time
+    now_str = target_dt.strftime("%H:%M %d/%m/%Y ") + tz_curr
     c_time = Time(now_str, g_curr)
     
-    # 1. Precision Timing (Rahu/Gulika) - Uses Current Location
+    # 1. Timing
     try:
-        rahu_range = PanchangaCalculator.GetRahuKaalRange(c_time)
-        rahu_txt = f"{rahu_range.Start.GetFormattedTime()} - {rahu_range.End.GetFormattedTime()}"
-        
-        gulika_range = PanchangaCalculator.GetGulikaKaalRange(c_time)
-        gulika_txt = f"{gulika_range.Start.GetFormattedTime()} - {gulika_range.End.GetFormattedTime()}"
+        rahu = PanchangaCalculator.GetRahuKaalRange(c_time)
+        rahu_txt = f"{rahu.Start.GetFormattedTime()} - {rahu.End.GetFormattedTime()}"
+        gulika = PanchangaCalculator.GetGulikaKaalRange(c_time)
+        gulika_txt = f"{gulika.Start.GetFormattedTime()} - {gulika.End.GetFormattedTime()}"
     except:
-        rahu_txt = "Calculating..."
-        gulika_txt = "Calculating..."
+        rahu_txt = gulika_txt = "Available at Sunrise"
 
-    # 2. Deep Metrics (Planets & Houses)
+    # 2. Planets & Houses
+    metrics = []
     planets = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
                PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn]
     
-    metrics = []
     for p in planets:
         try:
-            # Transit house relative to Birth Chart
-            # Logic: Where is the planet NOW (c_time) vs where you were BORN (b_time)
-            house_obj = Calculate.PlanetTransitHouse(p, b_time, c_time)
-            sign_obj = Calculate.PlanetTransitSign(p, c_time)
-            metrics.append({
-                "Planet": str(p),
-                "House": str(house_obj),
-                "Sign": str(sign_obj)
-            })
-        except:
-            continue
+            h = Calculate.PlanetTransitHouse(p, b_time, c_time)
+            s = Calculate.PlanetTransitSign(p, c_time)
+            metrics.append({"Planet": str(p), "House": str(h), "Sign": str(s)})
+        except: continue
 
-    # 3. Tara Bala & Tithi
+    # 3. Score & Tara
     try:
         tara = int(PanchangaCalculator.GetTaraBala(b_time, c_time).value__)
-        tithi_obj = PanchangaCalculator.GetTithi(c_time)
-        tithi_name = str(tithi_obj.TithiName.name)
+        tithi = str(PanchangaCalculator.GetTithi(c_time).TithiName.name)
     except:
-        tara = 1
-        tithi_name = "Calculating..."
+        tara, tithi = 1, "Unknown"
 
-    return {
-        "rahu": rahu_txt,
-        "gulika": gulika_txt,
-        "metrics": metrics,
-        "tara": tara,
-        "tithi": tithi_name
-    }
+    score = 40 + (45 if tara in [2,4,6,8,9] else 10)
+    return {"score": score, "rahu": rahu_txt, "gulika": gulika_txt, "metrics": metrics, "tara": tara, "tithi": tithi}
 
 # --- 6. UI DISPLAY ---
 st.title("☸️ Your Cosmic Dashboard")
@@ -111,43 +106,38 @@ st.title("☸️ Your Cosmic Dashboard")
 try:
     data = get_cosmic_data(geo_birth, geo_curr, birth_date, birth_time_input)
     
-    # POWER SCORE
-    score = 40 + (45 if data['tara'] in [2,4,6,8,9] else 10)
-    st.metric("Daily Power Score", f"{score}/100")
-    st.progress(score / 100)
+    st.metric("Daily Power Score", f"{data['score']}/100")
+    st.progress(data['score'] / 100)
 
-    # PRECISION TIMING
     st.subheader("⏳ Precision Timing")
-    st.caption(f"Calculated for your current location: **{geo_curr.Name}**")
     c1, c2 = st.columns(2)
     c1.error(f"🚫 **Rahu Kaal (Avoid):**\n\n{data['rahu']}")
     c2.success(f"✅ **Gulika Kaal (Good):**\n\n{data['gulika']}")
 
-    # LIFE CATEGORIES
     st.divider()
-    st.subheader("🔮 Life Category Forecast")
+    st.subheader("🔮 Life Categories")
     colA, colB, colC, colD = st.columns(4)
+    m_house = next((m['House'] for m in data['metrics'] if m['Planet'] == 'Moon'), "1")
     
-    moon_house = next((m['House'] for m in data['metrics'] if m['Planet'] == 'Moon'), "1")
-    
-    colA.info(f"💼 **Work**\n\n{'High Power' if any(x in moon_house for x in ['10','6','11']) else 'Routine'}")
-    colB.info(f"💰 **Wealth**\n\n{'Gain Potential' if any(x in moon_house for x in ['2','11']) else 'Neutral'}")
-    colC.info(f"🧘 **Health**\n\n{'Vitality High' if data['tara'] in [4,8,9] else 'Rest'}")
-    colD.info(f"❤️ **Relations**\n\n{'Harmony' if '7' in moon_house else 'Average'}")
+    colA.info(f"💼 **Work**\n\n{'High' if '10' in m_house or '6' in m_house else 'Neutral'}")
+    colB.info(f"💰 **Wealth**\n\n{'Gain' if '2' in m_house or '11' in m_house else 'Neutral'}")
+    colC.info(f"🧘 **Health**\n\n{'Strong' if data['tara'] in [4,8,9] else 'Rest'}")
+    colD.info(f"❤️ **Relations**\n\n{'Harmony' if '7' in m_house else 'Average'}")
 
-    # DEEP METRICS TABLE
     st.divider()
-    st.subheader("📊 Deep Astrological Metrics")
-    st.caption(f"Planetary transits as seen from **{geo_curr.Name}** relative to your birth at **{geo_birth.Name}**.")
-    if data['metrics']:
-        st.table(data['metrics'])
-    
-    with st.expander("📝 Technical Explainer"):
-        st.write(f"**Current Tithi:** {data['tithi']}")
-        st.write(f"**Tara Bala:** {data['tara']}/9")
-        st.write(f"**Janma Rashi Reference:** {geo_birth.Name}")
+    st.subheader("📅 7-Day Forecast")
+    forecast_list = []
+    for i in range(7):
+        future_date = datetime.datetime.now() + datetime.timedelta(days=i)
+        f_data = get_cosmic_data(geo_birth, geo_curr, birth_date, birth_time_input, future_date)
+        forecast_list.append({"Date": future_date.strftime("%a, %b %d"), "Score": f_data['score'], "Tara": f_data['tara']})
+    st.dataframe(forecast_list, use_container_width=True)
+
+    st.divider()
+    st.subheader("📊 Deep Astrological Metrics (Today)")
+    st.table(data['metrics'])
 
 except Exception as e:
     st.error(f"Synchronizing... {e}")
 
-st.caption("Optimized for iPhone Home Screen. Data: VedAstro.")
+st.caption("Optimized for iPhone. Data: VedAstro Engine.")
