@@ -56,9 +56,9 @@ def run_forecast(target_date):
     # 1. Panchang & Soul Harmony (Hierarchy Filter 1 & 2)
     panchang = Calculate.PanchangaTable(current_time)
     
-    # Updated: We get the Nakshatra and then extract the index number specifically
-    birth_star_num = int(str(Calculate.MoonNakshatra(birth_time).GetIndexNumber()))
-    today_star_num = int(str(Calculate.MoonNakshatra(current_time).GetIndexNumber()))
+    # Fail-proof way: Get the constant value of the Nakshatra name
+    birth_star_num = int(Calculate.MoonNakshatra(birth_time).NakshatraName.value__)
+    today_star_num = int(Calculate.MoonNakshatra(current_time).NakshatraName.value__)
     
     count = (today_star_num - birth_star_num + 1)
 
