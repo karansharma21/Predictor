@@ -1,15 +1,17 @@
 import streamlit as st
 import sys
 
-# --- 1. EMERGENCY POLYFILL FOR PYTHON 3.13 ---
-# This must be the very first thing in the script
+# --- 1. PYTHON 3.13 POLYFILL ---
 try:
     import pkg_resources
 except ImportError:
-    import pip._vendor.pkg_resources as pkg_resources
-    sys.modules["pkg_resources"] = pkg_resources
+    try:
+        import pip._vendor.pkg_resources as pkg_resources
+        sys.modules["pkg_resources"] = pkg_resources
+    except:
+        pass
 
-# --- 2. NOW IMPORT LIBRARIES ---
+# --- 2. IMPORTS ---
 from vedastro import *
 import datetime
 
@@ -17,106 +19,123 @@ import datetime
 st.set_page_config(page_title="Vedic Daily Engine", page_icon="☸️", layout="wide")
 
 # --- 4. SIDEBAR ---
-st.sidebar.header("Birth & Location Details")
+st.sidebar.header("Birth Details")
 name = st.sidebar.text_input("Name", "User")
 birth_date = st.sidebar.date_input("Birth Date", datetime.date(1990, 5, 15))
 birth_time_input = st.sidebar.time_input("Birth Time", datetime.time(10, 30))
-timezone = st.sidebar.text_input("Timezone", "+05:30")
-lat = st.sidebar.number_input("Latitude", value=12.97, format="%.4f")
-lon = st.sidebar.number_input("Longitude", value=77.59, format="%.4f")
+timezone = st.sidebar.text_input("Timezone (Offset)", "+05:30")
+
+st.sidebar.header("Location (Current)")
+# Ensure these are forced to float for the C# engine bridge
+lat = float(st.sidebar.number_input("Latitude", value=12.97, format="%.4f"))
+lon = float(st.sidebar.number_input("Longitude", value=77.59, format="%.4f"))
 
 # --- 5. ENGINE CORE ---
+# Format the birth string precisely
 birth_dt_str = f"{birth_time_input.strftime('%H:%M')} {birth_date.strftime('%d/%m/%Y')} {timezone}"
 location = GeoLocation(name, lon, lat)
 birth_time = Time(birth_dt_str, location)
 
-def get_detailed_data(target_date):
-    # Set current time for transit
-    now_str = target_date.strftime("%H:%M %d/%m/%Y +00:00")
+def get_cosmic_data():
+    # 1. Setup Current Time
+    now = datetime.datetime.now()
+    now_str = now.strftime("%H:%M %d/%m/%Y +00:00")
     current_time = Time(now_str, location)
     
-    # Raw Data Fetch (Panchang)
-    panchang = Calculate.PanchangaTable(current_time)
-    
-    # Timing Extraction
+    # 2. Precision Timing (Rahu/Gulika)
+    # We use the calculator directly with the location-synced time
     try:
-        rahu = str(Calculate.RahuKaalRange(current_time))
-        gulika = str(Calculate.GulikaKaalRange(current_time))
+        rahu_range = PanchangaCalculator.GetRahuKaalRange(current_time)
+        rahu_txt = f"{rahu_range.Start.GetFormattedTime()} - {rahu_range.End.GetFormattedTime()}"
+        
+        gulika_range = PanchangaCalculator.GetGulikaKaalRange(current_time)
+        gulika_txt = f"{gulika_range.Start.GetFormattedTime()} - {gulika_range.End.GetFormattedTime()}"
     except:
-        rahu, gulika = "Syncing...", "Syncing..."
+        rahu_txt = "Calculating... (Check Lat/Lon)"
+        gulika_txt = "Calculating... (Check Lat/Lon)"
 
-    # Planetary Positions for Metrics Table
+    # 3. Deep Metrics (Planets & Houses)
     planets = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
                PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn]
     
     metrics = []
     for p in planets:
         try:
-            house = Calculate.PlanetTransitHouse(p, birth_time, current_time)
-            sign = Calculate.PlanetTransitSign(p, current_time)
-            metrics.append({"Planet": str(p), "House": str(house), "Sign": str(sign)})
+            # Calculate House transit relative to Birth Time
+            house_obj = Calculate.PlanetTransitHouse(p, birth_time, current_time)
+            sign_obj = Calculate.PlanetTransitSign(p, current_time)
+            
+            metrics.append({
+                "Planet": str(p),
+                "House": str(house_obj),
+                "Sign": str(sign_obj)
+            })
         except:
             continue
 
-    # Tara Bala calculation
+    # 4. Tara Bala & Tithi
     try:
-        b_p = Calculate.PanchangaTable(birth_time)
-        b_nak = int(b_p['Nakshatra']['NakshatraName']['value__']) if isinstance(b_p, dict) else int(b_p.Nakshatra.NakshatraName.value__)
-        t_nak = int(panchang['Nakshatra']['NakshatraName']['value__']) if isinstance(panchang, dict) else int(panchang.Nakshatra.NakshatraName.value__)
-        count = (t_nak - b_nak + 1)
-        if count <= 0: count += 27
-        tara = count % 9 or 9
-    except: tara = 1
+        tara = int(PanchangaCalculator.GetTaraBala(birth_time, current_time).value__)
+        tithi_obj = PanchangaCalculator.GetTithi(current_time)
+        tithi_name = str(tithi_obj.TithiName.name)
+    except:
+        tara = 1
+        tithi_name = "Unknown"
 
     return {
-        "score": 40 + (45 if tara in [2,4,6,8,9] else 10),
-        "rahu": rahu,
-        "gulika": gulika,
-        "tara": tara,
+        "rahu": rahu_txt,
+        "gulika": gulika_txt,
         "metrics": metrics,
-        "tithi": "Today's Phase"
+        "tara": tara,
+        "tithi": tithi_name
     }
 
 # --- 6. UI DISPLAY ---
 st.title("☸️ Your Cosmic Dashboard")
 
 try:
-    data = get_detailed_data(datetime.datetime.now())
+    data = get_cosmic_data()
     
-    # 1. SCORE
-    st.metric("Daily Power Score", f"{data['score']}/100")
-    st.progress(data['score'] / 100)
+    # 1. TOP METRICS
+    score = 40 + (45 if data['tara'] in [2,4,6,8,9] else 10)
+    st.metric("Daily Power Score", f"{score}/100")
+    st.progress(score / 100)
 
     # 2. PRECISION TIMING
     st.subheader("⏳ Precision Timing")
     c1, c2 = st.columns(2)
-    c1.error(f"🚫 **Rahu Kaal (Avoid):**\n{data['rahu']}")
-    c2.success(f"✅ **Gulika Kaal (Good):**\n{data['gulika']}")
+    c1.error(f"🚫 **Rahu Kaal (Avoid):**\n\n{data['rahu']}")
+    c2.success(f"✅ **Gulika Kaal (Good):**\n\n{data['gulika']}")
 
     # 3. LIFE CATEGORIES
     st.divider()
     st.subheader("🔮 Life Category Forecast")
     colA, colB, colC, colD = st.columns(4)
     
-    # Prediction logic based on Moon House
-    moon_house = next((m['House'] for m in data['metrics'] if m['Planet'] == 'Moon'), "House1")
+    # Logic based on Deep Metrics
+    moon_house = next((m['House'] for m in data['metrics'] if m['Planet'] == 'Moon'), "1")
     
-    colA.info(f"💼 **Work**\n\n{'High Power' if any(x in moon_house for x in ['10','6','11']) else 'Routine'}")
+    colA.info(f"💼 **Work**\n\n{'Peak' if any(x in moon_house for x in ['10','6','11']) else 'Routine'}")
     colB.info(f"💰 **Wealth**\n\n{'Gain Potential' if any(x in moon_house for x in ['2','11']) else 'Neutral'}")
-    colC.info(f"🧘 **Health**\n\n{'Vitality High' if data['tara'] in [4,8,9] else 'Rest & Recovery'}")
-    colD.info(f"❤️ **Relations**\n\n{'Deep Connection' if '7' in moon_house else 'Average'}")
+    colC.info(f"🧘 **Health**\n\n{'Vitality High' if data['tara'] in [4,8,9] else 'Rest'}")
+    colD.info(f"❤️ **Relations**\n\n{'Harmony' if '7' in moon_house else 'Average'}")
 
     # 4. DEEP METRICS TABLE
     st.divider()
     st.subheader("📊 Deep Astrological Metrics")
-    st.caption("Planetary transits calculated relative to your Birth Moon (Janma Rashi).")
-    st.table(data['metrics'])
-    
+    if data['metrics']:
+        st.table(data['metrics'])
+    else:
+        st.warning("Deep metrics are initializing. Please ensure Latitude/Longitude are correct.")
+
+    # 5. TECHNICAL EXPLAINER
     with st.expander("📝 Technical Explainer"):
-        st.write(f"**Your Tara Bala (Star Strength):** {data['tara']}/9")
-        st.write("Tara Bala represents the relationship between the Moon's position at your birth and its current position today.")
+        st.write(f"**Current Tithi:** {data['tithi']}")
+        st.write(f"**Tara Bala:** {data['tara']}/9")
+        st.write("**House System:** Calculated using the *Janma Rashi* (Birth Moon) as the 1st House.")
+        st.write("**Calculation Engine:** VedAstro (C# Bridge)")
 
 except Exception as e:
-    st.error("Engine connecting... please refresh in 5 seconds.")
+    st.error(f"Synchronizing... {e}")
 
 st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
