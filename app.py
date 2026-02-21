@@ -40,13 +40,13 @@ def run_forecast(target_date):
     current_time = Time(now_str, location)
     
     # A. Tara Bala (Soul Filter) 
-    # Using the most direct 'Calculate' methods
-    birth_nak = Calculate.MoonNakshatra(birth_time)
-    today_nak = Calculate.MoonNakshatra(current_time)
+    # Using PanchangaTable - the most reliable "primitive" data source
+    birth_p = Calculate.PanchangaTable(birth_time)
+    today_p = Calculate.PanchangaTable(current_time)
     
-    # Extracting numeric index (1-27) using the underlying value
-    b_num = int(birth_nak.NakshatraName.value__)
-    t_num = int(today_nak.NakshatraName.value__)
+    # Extracting numeric index (1-27)
+    b_num = int(birth_p.Nakshatra.NakshatraName.value__)
+    t_num = int(today_p.Nakshatra.NakshatraName.value__)
     
     count = (t_num - b_num + 1)
     if count <= 0: count += 27
@@ -61,13 +61,9 @@ def run_forecast(target_date):
     day_color = color_map.get(str(day_of_week), "White")
     
     # C. Scoring Logic
-    # House transit
-    m_house = Calculate.PlanetTransitHouse(PlanetName.Moon, birth_time, current_time)
-    
-    score = 40 
+    # Simple score build
+    score = 50 # Baseline
     score += 30 if tara_num in [2,4,6,8,9] else 10
-    # Checking for specific lucky houses in the result string
-    score += 20 if any(h in str(m_house) for h in ["1", "3", "6", "11"]) else 5
     
     # D. Timing
     rahu_kaal = Calculate.RahuKaalRange(current_time)
@@ -100,9 +96,6 @@ try:
             st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
 except Exception as e:
-    # If the direct call fails, we try a fallback to help debug
-    st.error(f"Aligning with the stars... (Current Status: {e})")
-    if "Calculate" in str(e):
-        st.info("The engine is initializing its cosmic database. This usually takes 5-10 seconds on first run.")
+    st.error(f"Connecting to the stars... (Current Status: {e})")
 
 st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
