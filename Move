@@ -1,0 +1,94 @@
+using VedAstro.Library;
+using Newtonsoft.Json;
+
+namespace AstroExtractor
+{
+    class Program
+    {
+        // ==========================================
+        // CONFIGURATION OBJECT - SET YOUR DATA HERE
+        // ==========================================
+        public static class Config
+        {
+            // Birth Details
+            public const string BirthTime = "14:30 15/05/1992 +05:30"; // HH:mm dd/MM/yyyy Offset
+            public const string BirthCity = "Mumbai, India";
+            public const double BirthLat = 19.0760;
+            public const double BirthLong = 72.8777;
+
+            // Current Location (Where you are now)
+            public const string CurrentCity = "London, UK";
+            public const double CurrentLat = 51.5074;
+            public const double CurrentLong = -0.1278;
+            public const string CurrentOffset = "+00:00"; // Current timezone offset
+
+            // Settings
+            public const int DaysToForecast = 7;
+            public const string OutputFile = "vedastro_output.json";
+        }
+
+        static async Task Main(string[] args)
+        {
+            Console.WriteLine("✨ Initializing VedAstro Data Extraction...");
+
+            // 1. Setup Locations
+            var birthLoc = new GeoLocation(Config.BirthCity, Config.BirthLong, Config.BirthLat);
+            var currentLoc = new GeoLocation(Config.CurrentCity, Config.CurrentLong, Config.CurrentLat);
+
+            // 2. Setup Times
+            var birthTime = new Time(Config.BirthTime, birthLoc);
+            var now = Time.Now(currentLoc); 
+            var endPoint = now.AddDays(Config.DaysToForecast);
+
+            Console.WriteLine($"📍 Current Location: {Config.CurrentCity} | Time: {now}");
+
+            // 3. Calculate Core Data
+            // Get all predictions (transits vs birth chart) for the week
+            var eventList = await Task.Run(() => PredictionManager.GetPredictions(birthTime, now, endPoint));
+
+            // Get Shadbala (Planetary Strength)
+            var shadbala = AstronomicalCalculator.GetAllPlanetShadbala(birthTime);
+
+            // 4. Calculate Daily Panchang (Current Local Sky)
+            var dailyInfo = new {
+                Tithi = AstronomicalCalculator.GetSunriseTithi(now),
+                Nakshatra = AstronomicalCalculator.GetMoonNakshatra(now),
+                Yoga = AstronomicalCalculator.GetYoga(now),
+                DayLord = PlanetName.GetDayLord(now).ToString(),
+                RahuKaal = EventsCalculator.GetRahuKaal(now),
+                Abhijit = EventsCalculator.GetAbhijitMuhurta(now),
+                LuckyColor = PlanetName.GetDayLord(now).GetColor() 
+            };
+
+            // 5. Structure for JSON
+            var finalOutput = new {
+                Metadata = new {
+                    GeneratedAt = DateTime.Now.ToString("s"),
+                    Source = "VedAstro GitHub Library",
+                    Ayanamsa = "Lahiri"
+                },
+                UserContext = new {
+                    BirthLocation = Config.BirthCity,
+                    CurrentLocation = Config.CurrentCity,
+                    CurrentTime = now.ToString()
+                },
+                PlanetaryStrength = shadbala,
+                WeeklyPredictions = eventList.Select(e => new {
+                    e.Name,
+                    e.Description,
+                    e.Nature, // Auspicious/Inauspicious
+                    StartTime = e.StartTime.ToString(),
+                    EndTime = e.EndTime.ToString()
+                }),
+                TodayPanchang = dailyInfo
+            };
+
+            // 6. Save to File
+            string json = JsonConvert.SerializeObject(finalOutput, Formatting.Indented);
+            File.WriteAllText(Config.OutputFile, json);
+
+            Console.WriteLine($"✅ Success! File saved to: {Config.OutputFile}");
+            Console.WriteLine("👉 Pass the content of this file to Gemini for your forecast.");
+        }
+    }
+}
