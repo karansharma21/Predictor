@@ -59,7 +59,7 @@ if st.sidebar.button("♻️ Force Sync Engine"):
 def get_cosmic_data(g_birth, g_curr, b_date, b_time_in, target_dt=None):
     if target_dt is None: target_dt = datetime.datetime.now()
     
-    # 1. Standardize Time (UTC Format for Engine)
+    # 1. Standardize Time
     tz_b = get_safe_attr(g_birth, 'TimezoneStr', '+05:30')
     tz_c = get_safe_attr(g_curr, 'TimezoneStr', '+00:00')
     
@@ -73,36 +73,47 @@ def get_cosmic_data(g_birth, g_curr, b_date, b_time_in, target_dt=None):
         gulika = PanchangaCalculator.GetGulikaKaalRange(c_time)
         gulika_txt = f"{gulika.Start.GetFormattedTime()} - {gulika.End.GetFormattedTime()}"
     except:
-        rahu_txt = gulika_txt = "Calculating..."
+        rahu_txt = "Calculating..."
+        gulika_txt = "Calculating..."
 
-    # 3. Deep Metrics (Planets)
+    # 3. Planet Logic using Chandra Lagna (Moon Sign System)
     metrics = []
     cats = {"Work": "Stable", "Wealth": "Stable", "Health": "Good", "Relations": "Average"}
-    
     planets = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
                PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn]
     
-    for p in planets:
-        try:
-            # We use a combined call to reduce server load
-            house = Calculate.PlanetTransitHouse(p, b_time, c_time)
-            sign = Calculate.PlanetTransitSign(p, c_time)
-            h_str = str(house)
-            metrics.append({"Planet": str(p), "House": h_str, "Sign": str(sign)})
+    try:
+        # Get Birth Moon Sign Number (1-12)
+        birth_moon_sign = int(Calculate.PlanetTransitSign(PlanetName.Moon, b_time).GetSignName().value__)
+        
+        for p in planets:
+            # Get Current Planet Sign Number
+            current_sign_obj = Calculate.PlanetTransitSign(p, c_time)
+            curr_sign_num = int(current_sign_obj.GetSignName().value__)
+            curr_sign_name = str(current_sign_obj.GetSignName().name)
             
-            # Category Mapping
+            # Calculate House: (Current Sign - Birth Moon Sign + 1)
+            h_num = (curr_sign_num - birth_moon_sign + 1)
+            if h_num <= 0: h_num += 12
+            
+            metrics.append({"Planet": str(p), "House": f"House {h_num}", "Sign": curr_sign_name})
+            
+            # Categories based on derived house
             if str(p) == "Moon":
-                if any(x in h_str for x in ["2", "11"]): cats["Wealth"] = "🚀 Gain Period"
-                if any(x in h_str for x in ["6", "10"]): cats["Work"] = "💼 High Focus"
-                if "7" in h_str: cats["Relations"] = "❤️ Harmony"
-        except: continue
+                if h_num in [2, 11]: cats["Wealth"] = "🚀 High Gain"
+                if h_num in [6, 10]: cats["Work"] = "💼 Career Focus"
+                if h_num == 7: cats["Relations"] = "❤️ Harmony"
+            if str(p) == "Mars" and h_num in [6, 8, 12]:
+                cats["Health"] = "⚠️ Low Vitality"
+    except:
+        pass
 
     # 4. Score Logic
     try:
         tara = int(PanchangaCalculator.GetTaraBala(b_time, c_time).value__)
         tithi = str(PanchangaCalculator.GetTithi(c_time).TithiName.name)
     except:
-        tara, tithi = 1, "Calculating..."
+        tara, tithi = 1, "Neutral"
 
     score = 40 + (45 if tara in [2,4,6,8,9] else 10)
     return {"score": score, "rahu": rahu_txt, "gulika": gulika_txt, "metrics": metrics, "tara": tara, "tithi": tithi, "cats": cats}
@@ -114,16 +125,13 @@ try:
     data = get_cosmic_data(geo_birth, geo_curr, birth_date, birth_time_input)
     
     if view_mode == "Daily Dashboard":
-        # TOP ROW: SCORE
         st.metric("Power Score", f"{data['score']}/100")
         st.progress(data['score'] / 100)
 
-        # SECOND ROW: TIMING
         col1, col2 = st.columns(2)
         col1.error(f"🚫 **Rahu Kaal:**\n\n{data['rahu']}")
         col2.success(f"✅ **Gulika Kaal:**\n\n{data['gulika']}")
 
-        # THIRD ROW: CATEGORIES
         st.divider()
         st.subheader("🔮 Life Category Forecast")
         c1, c2, c3, c4 = st.columns(4)
@@ -132,13 +140,12 @@ try:
         c3.info(f"🧘 **Health**\n\n{data['cats']['Health']}")
         c4.info(f"❤️ **Relations**\n\n{data['cats']['Relations']}")
 
-        # FOURTH ROW: DEEP METRICS
         st.divider()
         st.subheader("📊 Deep Astrological Metrics")
         if data['metrics']:
             st.table(data['metrics'])
         else:
-            st.warning("Engine is mapping planetary houses. If this persists, tap 'Force Sync' in the sidebar.")
+            st.warning("Engine is syncing signs. Try changing your Birth City slightly to force a refresh.")
 
     else:
         st.subheader("📅 7-Day Outlook")
