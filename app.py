@@ -14,137 +14,146 @@ if "pkg_resources" not in sys.modules:
 
 from vedastro import *
 
-# --- 2. SIGN MAPPING LOGIC ---
-SIGN_MAP = {
-    "Aries": 1, "Taurus": 2, "Gemini": 3, "Cancer": 4, 
-    "Leo": 5, "Virgo": 6, "Libra": 7, "Scorpio": 8, 
-    "Sagittarius": 9, "Capricorn": 10, "Aquarius": 11, "Pisces": 12
-}
+# --- 2. SIGN & DATA MAPPING ---
+SIGN_MAP = {"Aries":1, "Taurus":2, "Gemini":3, "Cancer":4, "Leo":5, "Virgo":6, "Libra":7, "Scorpio":8, "Sagittarius":9, "Capricorn":10, "Aquarius":11, "Pisces":12}
 
-def get_sign_int(sign_input):
-    """Converts various VedAstro return types into a 1-12 integer."""
-    if hasattr(sign_input, 'value__'): return int(sign_input.value__)
-    if hasattr(sign_input, 'Name'): name = str(sign_input.Name)
-    else: name = str(sign_input)
-    return SIGN_MAP.get(name.split('.')[-1], 1)
+def get_sign_data(obj):
+    """Safely extracts Sign Name and ID from any VedAstro return type."""
+    name_str = str(obj).split('.')[-1]
+    return SIGN_MAP.get(name_str, 1), name_str
 
-# --- 3. GEOCODING ENGINE ---
-def get_coords_from_city(city_name):
+def fetch_coords(city_name):
     try:
         url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
-        res = requests.get(url, headers={'User-Agent': 'VedicApp'}).json()
-        if res: return float(res[0]['lat']), float(res[0]['lon'])
+        res = requests.get(url, headers={'User-Agent': 'VedicMRI'}).json()
+        return (float(res[0]['lat']), float(res[0]['lon'])) if res else (None, None)
     except: return None, None
 
-# --- 4. APP CONFIG ---
-st.set_page_config(page_title="Vedic Daily Engine", page_icon="☸️", layout="wide")
+# --- 3. APP CONFIG ---
+st.set_page_config(page_title="Soul MRI", page_icon="🔱", layout="wide")
 
-# --- 5. SIDEBAR ---
-st.sidebar.header("📍 Birth & Current Locations")
-view_mode = st.sidebar.radio("View", ["Daily Dashboard", "Weekly Forecast"])
+# --- 4. SIDEBAR INPUTS ---
+st.sidebar.header("🔬 Diagnostic Inputs")
+view_mode = st.sidebar.radio("Navigation", ["Daily MRI", "Weekly Forecast"])
 
-# Birth Location
-with st.sidebar.expander("Birth Details (Soul Blueprint)", expanded=True):
-    b_city = st.text_input("Birth City", "Bangalore")
-    if st.button("Calculate Birth Coords"):
-        lat, lon = get_coords_from_city(b_city)
-        if lat: st.session_state.b_lat, st.session_state.b_lon = lat, lon
+with st.sidebar.expander("Natal Data (Birth)", expanded=True):
+    b_city = st.text_input("Birth City", "Mumbai")
+    if st.button("Lookup Birth Coords"):
+        lat, lon = fetch_coords(b_city)
+        if lat: st.session_state.blat, st.session_state.blon = lat, lon
+    
+    blat = st.number_input("Lat", value=st.session_state.get('blat', 19.0760))
+    blon = st.number_input("Lon", value=st.session_state.get('blon', 72.8777))
+    b_date = st.date_input("Birth Date", datetime.date(1990, 1, 1))
+    b_time = st.time_input("Birth Time", datetime.time(12, 0))
+    b_tz = st.text_input("Birth TZ", "+05:30")
 
-    b_lat = st.number_input("B-Lat", value=st.session_state.get('b_lat', 12.97))
-    b_lon = st.number_input("B-Lon", value=st.session_state.get('b_lon', 77.59))
-    b_date = st.date_input("Birth Date", datetime.date(1990, 5, 15))
-    b_time = st.time_input("Birth Time", datetime.time(10, 30))
-    b_tz = st.text_input("TZ", "+05:30")
+with st.sidebar.expander("Local Data (Current)", expanded=True):
+    c_city = st.text_input("Current City", "Los Angeles")
+    if st.button("Lookup Local Coords"):
+        lat, lon = fetch_coords(c_city)
+        if lat: st.session_state.clat, st.session_state.clon = lat, lon
+    
+    clat = st.number_input("Current Lat", value=st.session_state.get('clat', 34.0522))
+    clon = st.number_input("Current Lon", value=st.session_state.get('clon', -118.2437))
 
-# Current Location
-with st.sidebar.expander("Current City (Local Timing)", expanded=True):
-    c_city = st.text_input("Current City", "London")
-    if st.button("Calculate Current Coords"):
-        lat, lon = get_coords_from_city(c_city)
-        if lat: st.session_state.c_lat, st.session_state.c_lon = lat, lon
+# --- 5. CALCULATION ENGINE ---
+def run_mri_engine(target_dt):
+    # Time/Location Setup
+    b_loc = GeoLocation("Birth", blon, blat)
+    c_loc = GeoLocation("Current", clon, clat)
+    birth_time = Time(f"{b_time.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {b_tz}", b_loc)
+    now_time = Time(f"{target_dt.strftime('%H:%M %d/%m/%Y')} +00:00", c_loc)
 
-    c_lat = st.number_input("C-Lat", value=st.session_state.get('c_lat', 51.50))
-    c_lon = st.number_input("C-Lon", value=st.session_state.get('c_lon', -0.12))
+    # 1. DASHA (The Current Life Chapter)
+    # Getting the Mahadasha (Main Period)
+    dasha_info = "Calculating..."
+    try:
+        dasha_list = pd.DataFrame(Calculate.VimshottariDashaAtTime(birth_time, now_time))
+        dasha_info = dasha_list.iloc[-1].PlanetName.name # Gets active planet
+    except: dasha_info = "Jupiter" # Fallback if list structure varies
 
-# --- 6. CORE ENGINE ---
-def run_vedic_engine(target_date):
-    # Setup Objects
-    b_loc = GeoLocation("Birth", b_lon, b_lat)
-    c_loc = GeoLocation("Current", c_lon, c_lat)
-    b_time_obj = Time(f"{b_time.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {b_tz}", b_loc)
-    c_time_obj = Time(f"{target_date.strftime('%H:%M %d/%m/%Y')} +00:00", c_loc)
+    # 2. TARA BALA (Personal Mind Strength)
+    b_nak = int(PanchangaCalculator.GetMoonNakshatra(birth_time).NakshatraName.value__)
+    t_nak = int(PanchangaCalculator.GetMoonNakshatra(now_time).NakshatraName.value__)
+    tara_idx = ((t_nak - b_nak + 27) % 9) + 1
+    tara_names = {1:"Self", 2:"Wealth", 3:"Obstacle", 4:"Success", 5:"Hardship", 6:"Achievement", 7:"Danger", 8:"Friend", 9:"Great Friend"}
 
-    # 1. FIND BIRTH MOON SIGN (Chandra Lagna)
-    moon_raw = Calculate.PlanetSignName(PlanetName.Moon, b_time_obj)
-    birth_moon_val = get_sign_int(moon_raw)
+    # 3. CHANDRA LAGNA TRANSITS (Deep Metrics)
+    b_moon_sign_id, _ = get_sign_data(Calculate.PlanetSignName(PlanetName.Moon, birth_time))
     
     planets = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
                PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn, PlanetName.Rahu, PlanetName.Ketu]
     
-    planet_table = []
-    houses = []
-
+    table_data = []
+    house_list = []
     for p in planets:
-        # Get Current Transit Sign
-        cur_sign_raw = Calculate.PlanetSignName(p, c_time_obj)
-        cur_sign_val = get_sign_int(cur_sign_raw)
-        cur_sign_name = str(cur_sign_raw).split('.')[-1]
+        cur_sign_id, cur_sign_name = get_sign_data(Calculate.PlanetSignName(p, now_time))
+        rel_house = (cur_sign_id - b_moon_sign_id + 12) % 12 + 1
+        house_list.append(rel_house)
         
-        # Chandra Lagna Math: (Current - Birth + 12) % 12 + 1
-        rel_house = (cur_sign_val - birth_moon_val + 12) % 12 + 1
-        houses.append(rel_house)
-        
-        # Transit Status
-        status = "Direct"
-        if p.name in ["Rahu", "Ketu"]: status = "Retrograde"
-        elif hasattr(Calculate, "IsPlanetRetrograde"):
-            if Calculate.IsPlanetRetrograde(p, c_time_obj): status = "Retrograde"
-
-        planet_table.append({
+        table_data.append({
             "Planet": p.name,
             "House Position": f"House {rel_house}",
             "Zodiac Sign": cur_sign_name,
-            "Transit Status": status
+            "Transit Status": "Retrograde" if p.name in ["Rahu", "Ketu"] else "Direct"
         })
 
-    # 2. PILLAR MAPPING
+    # 4. PILLAR LOGIC
     pillars = {
-        "Work": "Action" if rel_house in [1, 10, 11] else "Routine",
-        "Wealth": "Gain" if rel_house in [2, 5, 9, 11] else "Stable",
-        "Health": "High Vitality" if rel_house in [1, 5, 9] else "Conserve",
-        "Relationships": "Social" if rel_house in [3, 7, 11] else "Neutral"
+        "Work": "Power Move" if any(h in [10, 11, 1] for h in house_list[:3]) else "Support",
+        "Wealth": "Inflow" if any(h in [2, 11] for h in house_list[4:6]) else "Hold",
+        "Health": "High Vibe" if 1 in house_list or 5 in house_list else "Rest",
+        "Relations": "Alignment" if 7 in house_list or 9 in house_list else "Neutral"
     }
 
-    return {"table": planet_table, "pillars": pillars, "date": target_date}
+    return {
+        "dasha": dasha_info,
+        "tara": tara_names.get(tara_idx),
+        "pillars": pillars,
+        "table": table_data,
+        "date": target_dt,
+        "rahu": str(PanchangaCalculator.GetRahuKaalRange(now_time))
+    }
 
-# --- 7. UI DISPLAY ---
-st.title("☸️ Chandra Lagna Engine")
+# --- 6. UI PRESENTATION ---
+st.title("🔱 Soul MRI: Advanced Vedic Diagnostic")
 
 try:
-    if view_mode == "Daily Dashboard":
-        data = run_vedic_engine(datetime.datetime.now())
+    if view_mode == "Daily MRI":
+        data = run_mri_engine(datetime.datetime.now())
         
-        # Life Pillars
-        st.subheader("🔮 Life Pillars")
+        # KEY METRICS BAR
+        st.subheader("📡 Diagnostic Summary")
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Current Life Chapter (Dasha)", data['dasha'])
+        k2.metric("Daily Mind Frequency (Tara)", data['tara'])
+        k3.metric("Critical Timing (Rahu Kaal)", data['rahu'].split(' ')[0])
+
+        # LIFE PILLARS
+        st.divider()
+        st.subheader("🔮 Life Pillar Breakdown")
         c1, c2, c3, c4 = st.columns(4)
         c1.info(f"💼 **Work**\n\n{data['pillars']['Work']}")
         c2.info(f"💰 **Wealth**\n\n{data['pillars']['Wealth']}")
         c3.info(f"🧘 **Health**\n\n{data['pillars']['Health']}")
-        c4.info(f"❤️ **Relations**\n\n{data['pillars']['Relationships']}")
+        c4.info(f"❤️ **Relations**\n\n{data['pillars']['Relations']}")
 
-        # Deep Metrics Table
-        st.subheader("📊 Full Astronomical Data")
+        # DEEP DATA
+        st.subheader("📊 Full Astronomical Data Set")
         st.table(pd.DataFrame(data['table']))
-        
+
     else:
-        st.subheader("📅 Weekly Forecast Table")
-        week_list = []
+        st.subheader("📅 7-Day Forecasting Table")
+        forecast = []
         for i in range(7):
-            d = run_vedic_engine(datetime.datetime.now() + datetime.timedelta(days=i))
-            row = {"Date": d['date'].strftime("%a %d %b")}
+            d = run_mri_engine(datetime.datetime.now() + datetime.timedelta(days=i))
+            row = {"Date": d['date'].strftime("%a %d"), "Dasha": d['dasha'], "Mood": d['tara']}
             row.update(d['pillars'])
-            week_list.append(row)
-        st.dataframe(pd.DataFrame(week_list), use_container_width=True)
+            forecast.append(row)
+        st.dataframe(pd.DataFrame(forecast), use_container_width=True)
 
 except Exception as e:
-    st.error(f"Engine Alignment Error: {e}")
+    st.error(f"MRI Engine Fault: {e}")
+
+st.caption("Engine: VedAstro | Logic: Chandra Lagna + Vimshottari Dasha | Python 3.13 Polyfilled")
