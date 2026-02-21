@@ -1,6 +1,23 @@
 import streamlit as st
+
+# --- EMERGENCY FIX FOR PYTHON 3.13 ---
+try:
+    import pkg_resources
+except ImportError:
+    try:
+        import pip._vendor.pkg_resources as pkg_resources
+    except ImportError:
+        # If the above fails, we'll try to use setuptools directly
+        from setuptools import pkg_resources
+    import sys
+    sys.modules["pkg_resources"] = pkg_resources
+# -------------------------------------
+
 from vedastro import *
 import datetime
+
+# ... the rest of your code follows below ...
+
 
 # --- APP CONFIGURATION ---
 st.set_page_config(page_title="Vedic Daily Engine", page_icon="✨")
