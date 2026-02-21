@@ -1,24 +1,18 @@
 import streamlit as st
 import sys
 
-# --- 1. PRE-EMPTIVE STRIKE FOR PYTHON 3.13 ---
-# We manually inject pkg_resources into the system modules 
-# so 'vedastro' finds it immediately upon import.
+# --- 1. PYTHON 3.13 FIX ---
 try:
     import pkg_resources
 except ImportError:
     try:
         import pip._vendor.pkg_resources as pkg_resources
     except ImportError:
-        try:
-            import setuptools.pkg_resources as pkg_resources
-        except ImportError:
-            pkg_resources = None
-    
+        pkg_resources = None
     if pkg_resources:
         sys.modules["pkg_resources"] = pkg_resources
 
-# --- 2. NOW IMPORT LIBRARIES ---
+# --- 2. IMPORT LIBRARIES ---
 from vedastro import *
 import datetime
 
@@ -43,44 +37,40 @@ def get_engine_data(target_date):
     now_str = target_date.strftime("%H:%M %d/%m/%Y +00:00")
     current_time = Time(now_str, location)
     
-    # 5-Limb Data (Panchang)
-    p = Calculate.PanchangaTable(current_time)
-    
-    # Safely extract Nakshatra data from Dictionary (Cloud format)
+    # A. Get Panchang (The 5 Pillars)
+    # Using the most stable method: PanchangaCalculator
     try:
-        if isinstance(p, dict):
-            t_nak_id = int(p['Nakshatra']['NakshatraName']['value__'])
-            t_nak_name = str(p['Nakshatra']['NakshatraName']['name'])
-            tithi = str(p['Tithi']['TithiName']['name'])
-        else:
-            t_nak_id = int(p.Nakshatra.NakshatraName.value__)
-            t_nak_name = str(p.Nakshatra.NakshatraName.name)
-            tithi = str(p.Tithi.TithiName.name)
+        t_nak_id = int(PanchangaCalculator.GetMoonNakshatra(current_time).NakshatraName.value__)
+        t_nak_name = str(PanchangaCalculator.GetMoonNakshatra(current_time).NakshatraName.name)
+        tithi = str(PanchangaCalculator.GetTithi(current_time).TithiName.name)
     except:
         t_nak_id, t_nak_name, tithi = 1, "Unknown", "Unknown"
 
-    # Birth Nakshatra check
+    # B. Birth Nakshatra
     try:
-        b_p = Calculate.PanchangaTable(birth_time)
-        b_nak_id = int(b_p['Nakshatra']['NakshatraName']['value__']) if isinstance(b_p, dict) else int(b_p.Nakshatra.NakshatraName.value__)
+        b_nak_id = int(PanchangaCalculator.GetMoonNakshatra(birth_time).NakshatraName.value__)
     except:
         b_nak_id = 1
 
-    # Tara Bala calculation
+    # C. Tara Bala Calculation
     count = (t_nak_id - b_nak_id + 1)
     if count <= 0: count += 27
     tara_num = count % 9 or 9
     
-    # Timing
-    rahu = Calculate.RahuKaalRange(current_time)
-    gulika = Calculate.GulikaKaalRange(current_time)
+    # D. Precision Timing (Auspicious/Inauspicious)
+    # Using the specific timing calculator to avoid 'AttributeError'
+    try:
+        rahu = str(PanchangaCalculator.GetRahuKaalRange(current_time))
+        gulika = str(PanchangaCalculator.GetGulikaKaalRange(current_time))
+    except:
+        rahu, gulika = "Check Local Calendar", "Check Local Calendar"
     
     return {
         "tara": tara_num,
         "tithi": tithi,
         "nakshatra": t_nak_name,
-        "rahu": str(rahu),
-        "gulika": str(gulika),
+        "rahu": rahu,
+        "gulika": gulika,
         "day": target_date.strftime("%A")
     }
 
@@ -90,7 +80,7 @@ st.title("☸️ Your Cosmic Dashboard")
 try:
     data = get_engine_data(datetime.datetime.now())
     
-    # TOP METRICS
+    # POWER SCORE
     score = 40 + (45 if data['tara'] in [2,4,6,8,9] else 10)
     st.metric("Daily Power Score", f"{score}/100")
     st.progress(score / 100)
@@ -108,8 +98,6 @@ try:
     st.subheader("🔮 Life Category Forecast")
     c1, c2, c3, c4 = st.columns(4)
     
-    # Mapping Tara Bala to Life Areas
-    # 2=Sampat (Wealth), 4=Kshema (Health), 6=Sadhana (Work), 8=Mitra (Relations)
     cat_logic = {
         "Work": "High Focus" if data['tara'] in [2,6,9] else "Routine",
         "Wealth": "Gain Potential" if data['tara'] in [2,4,9] else "Stable",
@@ -122,18 +110,16 @@ try:
     c3.info(f"🧘 **Health**\n\n{cat_logic['Health']}")
     c4.info(f"❤️ **Relations**\n\n{cat_logic['Relations']}")
 
-    # SCORING TABLE
-    st.divider()
+    # METRICS TABLE
     with st.expander("📊 View Detailed Metrics"):
         st.table([
             {"Metric": "Tara Bala", "Value": f"{data['tara']}/9", "Status": "Auspicious" if data['tara'] in [2,4,6,8,9] else "Average"},
             {"Metric": "Tithi", "Value": data['tithi'], "Status": "Current"},
-            {"Metric": "Nakshatra", "Value": data['nakshatra'], "Status": "Current"},
-            {"Metric": "Day Lord", "Value": data['day'], "Status": "Ruling"}
+            {"Metric": "Nakshatra", "Value": data['nakshatra'], "Status": "Current"}
         ])
 
 except Exception as e:
-    st.warning("Syncing with the stars... please wait.")
-    st.caption(f"Technical note: {e}")
+    st.warning("Finalizing data...")
+    st.caption(f"Waiting for engine: {e}")
 
 st.caption("Optimized for iPhone Home Screen. Powered by VedAstro.")
