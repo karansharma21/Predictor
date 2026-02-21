@@ -1,6 +1,22 @@
 import streamlit as st
+import sys
+
+# --- 1. PRE-EMPTIVE STRIKE FOR PYTHON 3.13 ---
+# This MUST happen before 'from vedastro import *'
+try:
+    import pkg_resources
+except ImportError:
+    # We create a "fake" pkg_resources so the library doesn't crash
+    from setuptools import fallback_version_string if 'setuptools' in sys.modules else None
+    import pip._vendor.pkg_resources as pkg_resources
+    sys.modules["pkg_resources"] = pkg_resources
+
+# --- 2. NOW IMPORT LIBRARIES ---
 from vedastro import *
 import datetime
+
+# --- THE REST OF YOUR CODE ---
+
 
 # --- 1. EMERGENCY FIX FOR PYTHON 3.13 ---
 try:
