@@ -13,6 +13,7 @@ except ImportError:
 # -------------------------------------
 
 from vedastro import *
+import VedAstro # Explicitly import the namespace
 import datetime
 
 # --- 2. APP CONFIGURATION ---
@@ -30,7 +31,6 @@ lon = st.sidebar.number_input("Longitude", value=77.59, format="%.4f")
 mode = st.sidebar.selectbox("View Mode", ["Daily", "Weekly"])
 
 # --- 4. DATA INITIALIZATION ---
-# Formats the inputs for the VedAstro Engine
 birth_dt_str = f"{birth_time_input.strftime('%H:%M')} {birth_date.strftime('%d/%m/%Y')} {timezone}"
 location = GeoLocation(name, lon, lat)
 birth_time = Time(birth_dt_str, location)
@@ -41,9 +41,9 @@ def run_forecast(target_date):
     current_time = Time(now_str, location)
     
     # A. Tara Bala (Soul Filter) 
-    # Using PanchangaCalculator - the current library standard
-    birth_nak = PanchangaCalculator.GetMoonNakshatra(birth_time)
-    today_nak = PanchangaCalculator.GetMoonNakshatra(current_time)
+    # Using the Full Namespace path for the cloud server
+    birth_nak = VedAstro.PanchangaCalculator.GetMoonNakshatra(birth_time)
+    today_nak = VedAstro.PanchangaCalculator.GetMoonNakshatra(current_time)
     
     # Extracting the 1-27 index value
     b_num = int(birth_nak.NakshatraName.value__)
@@ -53,7 +53,8 @@ def run_forecast(target_date):
     if count <= 0: count += 27
     tara_num = count % 9 or 9
 
-    # B. Daily Color & Panchang
+    # B. Daily Color
+    # Use the general Calculate class for these stable methods
     day_of_week = Calculate.DayOfWeek(current_time)
     color_map = {
         "Sunday": "Orange", "Monday": "White", "Tuesday": "Red", 
@@ -62,11 +63,9 @@ def run_forecast(target_date):
     day_color = color_map.get(str(day_of_week), "White")
     
     # C. Scoring Logic
-    # Moon Transit House relative to Birth Moon
     m_house = Calculate.PlanetTransitHouse(PlanetName.Moon, birth_time, current_time)
     
-    # Total Score Calculation
-    score = 40 # Baseline
+    score = 40 
     score += 30 if tara_num in [2,4,6,8,9] else 10
     score += 20 if any(h in str(m_house) for h in ["1", "3", "6", "11"]) else 5
     
@@ -90,8 +89,9 @@ try:
             st.write(f"🚫 **Rahu Kaal:** {rahu}")
         with col2:
             st.write(f"🎨 **Wear:** {color}")
-            current_day = Calculate.DayOfWeek(Time(datetime.datetime.now().strftime('%H:%M %d/%m/%Y +00:00'), location))
-            st.write(f"📅 **Day:** {current_day}")
+            # Get current day
+            now_time = Time(datetime.datetime.now().strftime('%H:%M %d/%m/%Y +00:00'), location)
+            st.write(f"📅 **Day:** {Calculate.DayOfWeek(now_time)}")
 
     else:
         st.subheader("7-Day Power Outlook")
@@ -101,6 +101,6 @@ try:
             st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
 except Exception as e:
-    st.error(f"Engine connecting... If this lasts more than 10 seconds, please refresh. (Detail: {e})")
+    st.error(f"Connecting to the stars... (Detail: {e})")
 
 st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
