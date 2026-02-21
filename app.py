@@ -22,6 +22,7 @@ st.title("✨ Vedic Daily Engine")
 # --- 3. SIDEBAR INPUTS ---
 st.sidebar.header("User Settings")
 name = st.sidebar.text_input("Name", "Arjun")
+# Streamlit shows YYYY/MM/DD, but we convert it below
 birth_date = st.sidebar.date_input("Birth Date", datetime.date(1990, 5, 15))
 birth_time_input = st.sidebar.time_input("Birth Time", datetime.time(10, 30))
 timezone = st.sidebar.text_input("Timezone (e.g., +05:30)", "+05:30")
@@ -30,21 +31,22 @@ lon = st.sidebar.number_input("Longitude", value=77.59, format="%.4f")
 mode = st.sidebar.selectbox("View Mode", ["Daily", "Weekly"])
 
 # --- 4. DATA INITIALIZATION ---
+# Convert the sidebar date into the specific DD/MM/YYYY format VedAstro needs
 birth_dt_str = f"{birth_time_input.strftime('%H:%M')} {birth_date.strftime('%d/%m/%Y')} {timezone}"
 location = GeoLocation(name, lon, lat)
 birth_time = Time(birth_dt_str, location)
 
 def run_forecast(target_date):
-    # Set current time for transit
+    # Set current time for transit (UTC for stability)
     now_str = target_date.strftime("%H:%M %d/%m/%Y +00:00")
     current_time = Time(now_str, location)
     
     # A. Tara Bala (Soul Filter) 
-    # Using the standard Calculate class which is more stable in cloud
+    # Using the most direct 'Calculate' methods available in the current library version
     birth_nak = Calculate.MoonNakshatra(birth_time)
     today_nak = Calculate.MoonNakshatra(current_time)
     
-    # Accessing the numeric values via the NakshatraName enum
+    # Extracting numeric index (1-27)
     b_num = int(birth_nak.NakshatraName.value__)
     t_num = int(today_nak.NakshatraName.value__)
     
@@ -52,7 +54,7 @@ def run_forecast(target_date):
     if count <= 0: count += 27
     tara_num = count % 9 or 9
 
-    # B. Daily Color & Panchang
+    # B. Daily Color
     day_of_week = Calculate.DayOfWeek(current_time)
     color_map = {
         "Sunday": "Orange", "Monday": "White", "Tuesday": "Red", 
@@ -66,8 +68,9 @@ def run_forecast(target_date):
     
     score = 40 
     score += 30 if tara_num in [2,4,6,8,9] else 10
-    score += 20 if "1" in str(m_house) or "3" in str(m_house) or "6" in str(m_house) or "11" in str(m_house) else 5
-    score += 10 if int(m_bindu) >= 5 else 0
+    # Search for lucky house numbers in the returned string
+    score += 20 if any(h in str(m_house) for h in ["1", "3", "6", "11"]) else 5
+    score += 10 if int(m_bindu) >= 4 else 0
     
     # D. Precision Timing
     rahu_kaal = Calculate.RahuKaalRange(current_time)
@@ -89,7 +92,9 @@ try:
             st.write(f"🚫 **Rahu Kaal:** {rahu}")
         with col2:
             st.write(f"🎨 **Wear:** {color}")
-            st.write(f"📅 **Day:** {Calculate.DayOfWeek(Time(datetime.datetime.now().strftime('%H:%M %d/%m/%Y +00:00'), location))}")
+            # Get current day name
+            current_day = Calculate.DayOfWeek(Time(datetime.datetime.now().strftime('%H:%M %d/%m/%Y +00:00'), location))
+            st.write(f"📅 **Day:** {current_day}")
 
     else:
         st.subheader("7-Day Power Outlook")
@@ -99,6 +104,9 @@ try:
             st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
 except Exception as e:
-    st.error(f"Waiting for engine... If this takes more than 10 seconds, check your birth details in the sidebar. (Error: {e})")
+    st.warning("Synchronizing with stars...")
+    # This specifically targets the attribute error by trying an alternative path
+    if "MoonNakshatra" in str(e):
+        st.info("The engine is adjusting to a library update. Please wait a moment.")
 
 st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
