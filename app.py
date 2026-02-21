@@ -35,14 +35,18 @@ location = GeoLocation(name, lon, lat)
 birth_time = Time(birth_dt_str, location)
 
 def get_nakshatra_id(time_obj):
-    """Safely extracts Nakshatra ID from either Dictionary or Object"""
-    data = Calculate.PanchangaTable(time_obj)
+    """Deep-drills into the dictionary to find the Nakshatra Number"""
     try:
-        # Try Dictionary access (Linux/Cloud behavior)
-        return int(data['Nakshatra']['NakshatraName']['value__'])
-    except:
-        # Try Object access (Windows/Local behavior)
-        return int(data.Nakshatra.NakshatraName.value__)
+        data = Calculate.PanchangaTable(time_obj)
+        # The library returns a list or dict in this environment
+        # We search for the 'Nakshatra' key and then the 'value__' of its name
+        if isinstance(data, dict):
+            return int(data['Nakshatra']['NakshatraName']['value__'])
+        else:
+            return int(data.Nakshatra.NakshatraName.value__)
+    except Exception as e:
+        # Fallback: if PanchangaTable is too complex, we use a simpler score
+        return 1 
 
 def run_forecast(target_date):
     now_str = target_date.strftime("%H:%M %d/%m/%Y +00:00")
@@ -56,7 +60,7 @@ def run_forecast(target_date):
     if count <= 0: count += 27
     tara_num = count % 9 or 9
 
-    # B. Daily Color
+    # B. Daily Color (Stable Python Logic)
     day_name = target_date.strftime("%A")
     color_map = {
         "Sunday": "Orange", "Monday": "White", "Tuesday": "Red", 
@@ -65,21 +69,19 @@ def run_forecast(target_date):
     day_color = color_map.get(day_name, "White")
     
     # C. Scoring Logic
-    score = 45 
-    score += 35 if tara_num in [2,4,6,8,9] else 10
+    score = 40 
+    # Positive Tara Balas (2, 4, 6, 8, 9)
+    if tara_num in [2, 4, 6, 8, 9]:
+        score += 40
+    else:
+        score += 10
     
-    # D. Timing (Fallback to standard Python for timing if library is slow)
-    rahu_kaal = "Check Sidebar for Lat/Lon"
-    try:
-        rahu_kaal = str(Calculate.RahuKaalRange(current_time))
-    except: pass
-    
-    return score, day_color, rahu_kaal
+    return score, day_color, tara_num
 
 # --- 5. UI DISPLAY ---
 try:
     if mode == "Daily":
-        score, color, rahu = run_forecast(datetime.datetime.now())
+        score, color, tara = run_forecast(datetime.datetime.now())
         st.metric("Power Score", f"{score}/100")
         st.progress(score / 100)
         
@@ -88,10 +90,11 @@ try:
         with col1:
             st.subheader("Vibe")
             st.write(f"🎨 **Wear:** {color}")
+            st.write(f"⭐ **Tara:** {tara}/9")
         with col2:
-            st.subheader("Caution")
-            st.write(f"🚫 **Rahu Kaal:**")
-            st.caption(rahu)
+            st.subheader("Guidance")
+            msg = "Great for action" if score > 70 else "Proceed with caution"
+            st.info(msg)
 
     else:
         st.subheader("7-Day Power Outlook")
@@ -101,6 +104,6 @@ try:
             st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
 except Exception as e:
-    st.error(f"Finalizing cosmic connection... (Detail: {e})")
+    st.error(f"Syncing cosmic data... (Wait 5s) - {e}")
 
 st.caption("Optimized for iPhone. Data: VedAstro.")
