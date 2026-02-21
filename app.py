@@ -1,131 +1,131 @@
 import sys
+import types
 
-# --- 1. CRITICAL PYTHON 3.13 FIX ---
-# This fixes the 'ModuleNotFoundError: pkg_resources' issue
-try:
-    import pkg_resources
-except ImportError:
-    try:
-        from pip._vendor import pkg_resources
-    except ImportError:
-        import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "setuptools"])
-        import pkg_resources
-    sys.modules["pkg_resources"] = pkg_resources
+# --- 1. CRITICAL PYTHON 3.13 POLYFILL (Must stay at top) ---
+if "pkg_resources" not in sys.modules:
+    mock_pkg = types.ModuleType("pkg_resources")
+    mock_pkg.declare_namespace = lambda name: None
+    mock_pkg.get_distribution = lambda name: types.SimpleNamespace(version="0.0.0")
+    mock_pkg.Requirement = lambda x: x
+    sys.modules["pkg_resources"] = mock_pkg
 
 import streamlit as st
-from vedastro import *
 import datetime
+import pandas as pd
+from vedastro import *
 
-# --- 2. CONFIG ---
-st.set_page_config(page_title="Vedic Daily", page_icon="☸️", layout="wide")
+# --- 2. APP CONFIG ---
+st.set_page_config(page_title="Vedic Engine Pro", page_icon="🔱", layout="wide")
 
-# --- 3. GEO-FETCH ---
-@st.cache_data
-def get_geo(city):
-    try:
-        res = GeoLocation.GetGeoLocation(city)
-        return res[0] if res else None
-    except:
-        return None
+# --- 3. SIDEBAR INPUTS ---
+st.sidebar.header("🌍 Birth & Current Data")
+nav_mode = st.sidebar.radio("View Mode", ["Daily Dashboard", "Weekly Forecast"])
 
-# --- 4. SIDEBAR ---
-st.sidebar.header("📍 Settings")
-curr_city_name = st.sidebar.text_input("Current City", "London")
-birth_city_name = st.sidebar.text_input("Birth City", "Mumbai")
+with st.sidebar.expander("Birth Details (Soul Blueprint)", expanded=True):
+    b_date = st.sidebar.date_input("Birth Date", datetime.date(1995, 1, 1))
+    b_time = st.sidebar.time_input("Birth Time", datetime.time(12, 0))
+    b_tz = st.sidebar.text_input("Birth TZ (e.g. +05:30)", "+05:30")
+    b_lat = st.sidebar.number_input("Birth Lat", value=28.6139)
+    b_lon = st.sidebar.number_input("Birth Lon", value=77.2090)
 
-geo_curr = get_geo(curr_city_name) or GeoLocation("London", -0.1278, 51.5074)
-geo_birth = get_geo(birth_city_name) or GeoLocation("Mumbai", 72.8777, 19.0760)
+with st.sidebar.expander("Current Location (Local Muhurta)", expanded=True):
+    c_lat = st.sidebar.number_input("Current Lat", value=40.7128)
+    c_lon = st.sidebar.number_input("Current Lon", value=-74.0060)
 
-st.sidebar.divider()
-st.sidebar.header("👶 Birth Details")
-b_date = st.sidebar.date_input("Date", datetime.date(1990, 5, 15))
-b_time = st.sidebar.time_input("Time", datetime.time(10, 30))
-
-# --- 5. CALCULATION ENGINE ---
-def fetch_all_data(g_birth, g_curr, b_d, b_t):
-    # Standardize offsets
-    birth_str = f"{b_t.strftime('%H:%M')} {b_d.strftime('%d/%m/%Y')} +05:30"
-    now_str = datetime.datetime.now().strftime("%H:%M %d/%m/%Y +00:00")
+# --- 4. CALCULATION ENGINE ---
+def get_vibe_engine(target_date):
+    # Setup Locations
+    birth_loc = GeoLocation("Birth", b_lon, b_lat)
+    curr_loc = GeoLocation("Current", c_lon, c_lat)
     
-    time_birth = Time(birth_str, g_birth)
-    time_now = Time(now_str, g_curr)
+    # Setup Times
+    birth_time = Time(f"{b_time.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {b_tz}", birth_loc)
+    # Target time normalized to UTC for calculation consistency
+    calc_time = Time(f"{target_date.strftime('%H:%M %d/%m/%Y')} +00:00", curr_loc)
+
+    # A. CHANDRA LAGNA (Moon as Ascendant)
+    # Find Moon's sign index at birth (1-12)
+    b_moon_sign = Calculate.PlanetSignName(PlanetName.Moon, birth_time).value__
     
-    results = {
-        "score": 50,
-        "pillars": {"Work": "Stable", "Wealth": "Neutral", "Health": "Good", "Relations": "Average"},
-        "planets": [],
-        "times": {"Rahu": "Syncing...", "Gulika": "Syncing..."}
+    planets = [
+        PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury,
+        PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn, PlanetName.Rahu, PlanetName.Ketu
+    ]
+    
+    planet_data = []
+    houses_occupied = []
+
+    for p in planets:
+        cur_sign = Calculate.PlanetSignName(p, calc_time).value__
+        # Relative House Logic: (Current - BirthMoon + 12) % 12 + 1
+        rel_house = (cur_sign - b_moon_sign + 12) % 12 + 1
+        houses_occupied.append(rel_house)
+        
+        planet_data.append({
+            "Planet": p.name,
+            "House": f"House {rel_house}",
+            "Sign": Calculate.PlanetSignName(p, calc_time).name,
+            "Transit": "Direct" if p.name not in ["Rahu", "Ketu"] else "Retrograde"
+        })
+
+    # B. LIFE PILLAR LOGIC
+    # Mapping specific houses to pillars based on Chandra Lagna
+    pillars = {
+        "Work": "Actionable" if any(h in [1, 10, 11] for h in houses_occupied[:3]) else "Stable",
+        "Wealth": "Growth" if any(h in [2, 5, 9, 11] for h in houses_occupied[4:6]) else "Routine",
+        "Health": "High Energy" if any(h in [1, 5, 9] for h in houses_occupied) else "Conserve",
+        "Relations": "Social" if any(h in [3, 7, 11] for h in houses_occupied) else "Neutral"
     }
 
-    try:
-        # A. Timing
-        rahu = PanchangaCalculator.GetRahuKaalRange(time_now)
-        gulika = PanchangaCalculator.GetGulikaKaalRange(time_now)
-        results["times"]["Rahu"] = f"{rahu.Start.GetFormattedTime()} - {rahu.End.GetFormattedTime()}"
-        results["times"]["Gulika"] = f"{gulika.Start.GetFormattedTime()} - {gulika.End.GetFormattedTime()}"
-        
-        # B. Score
-        tara = int(PanchangaCalculator.GetTaraBala(time_birth, time_now).value__)
-        results["score"] = 40 + (45 if tara in [2,4,6,8,9] else 10)
+    # C. PRECISION TIMING
+    rahu = str(PanchangaCalculator.GetRahuKaalRange(calc_time))
+    gulika = str(PanchangaCalculator.GetGulikaKaalRange(calc_time))
+    
+    return {"metrics": planet_data, "pillars": pillars, "rahu": rahu, "gulika": gulika, "date": target_date}
 
-        # C. Planets & Pillars
-        # Get Birth Moon Sign as the starting point (Chandra Lagna)
-        birth_moon_sign = int(Calculate.PlanetTransitSign(PlanetName.Moon, time_birth).GetSignName().value__)
-        
-        plist = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
-                 PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn]
-        
-        for p in plist:
-            curr_sign = Calculate.PlanetTransitSign(p, time_now).GetSignName()
-            s_num = int(curr_sign.value__)
-            
-            # Vedic House: (Current - Birth) + 1
-            h_num = (s_num - birth_moon_sign + 1)
-            if h_num <= 0: h_num += 12
-            
-            results["planets"].append({"Planet": str(p), "House": h_num, "Zodiac": str(curr_sign.name)})
-
-            # Logic for Pillars
-            if str(p) == "Moon":
-                if h_num in [2, 11]: results["pillars"]["Wealth"] = "💹 High Potential"
-                if h_num in [10, 6]: results["pillars"]["Work"] = "💼 Focus High"
-                if h_num == 7: results["pillars"]["Relations"] = "❤️ Harmony"
-            if str(p) == "Mars" and h_num in [6, 8, 12]:
-                results["pillars"]["Health"] = "⚠️ Low Energy"
-                
-    except Exception as e:
-        results["error"] = str(e)
-        
-    return results
-
-# --- 6. UI ---
-st.header("☸️ Your Cosmic Live Feed")
+# --- 5. UI RENDERING ---
+st.title("☸️ Your Cosmic Intelligence")
 
 try:
-    data = fetch_all_data(geo_birth, geo_curr, b_date, b_time)
+    if nav_mode == "Daily Dashboard":
+        data = get_vibe_engine(datetime.datetime.now())
+        
+        # Pillars Row
+        st.subheader("🔮 Life Pillars")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("💼 Work", data['pillars']['Work'])
+        c2.metric("💰 Wealth", data['pillars']['Wealth'])
+        c3.metric("🧘 Health", data['pillars']['Health'])
+        c4.metric("❤️ Relationships", data['pillars']['Relations'])
 
-    st.metric("Power Score", f"{data['score']}/100")
-    st.progress(data['score'] / 100)
+        # Deep Metrics Table
+        st.subheader("📊 Deep Metrics (Chandra Lagna)")
+        st.dataframe(pd.DataFrame(data['metrics']), use_container_width=True)
 
-    col1, col2 = st.columns(2)
-    col1.error(f"🚫 **Rahu Kaal**\n\n{data['times']['Rahu']}")
-    col2.success(f"✅ **Gulika Kaal**\n\n{data['times']['Gulika']}")
+        # Timing
+        st.divider()
+        t1, t2 = st.columns(2)
+        with t1:
+            st.error(f"🚫 **Rahu Kaal:** {data['rahu']}")
+        with t2:
+            st.success(f"✅ **Gulika Kaal:** {data['gulika']}")
 
-    st.divider()
-    st.subheader("🔮 Life Category Breakdown")
-    p1, p2, p3, p4 = st.columns(4)
-    p1.info(f"💼 **Work**\n\n{data['pillars']['Work']}")
-    p2.info(f"💰 **Wealth**\n\n{data['pillars']['Wealth']}")
-    p3.info(f"🧘 **Health**\n\n{data['pillars']['Health']}")
-    p4.info(f"❤️ **Relations**\n\n{data['pillars']['Relations']}")
-
-    st.divider()
-    st.subheader("📊 Planetary Transit Data")
-    if data["planets"]:
-        st.table(data["planets"])
     else:
-        st.warning("🔄 Calculating planetary positions...")
+        st.subheader("📅 7-Day Weekly Forecast")
+        week_data = []
+        for i in range(7):
+            day = datetime.datetime.now() + datetime.timedelta(days=i)
+            d = get_vibe_engine(day)
+            week_data.append({
+                "Date": d['date'].strftime("%a, %b %d"),
+                "Work": d['pillars']['Work'],
+                "Wealth": d['pillars']['Wealth'],
+                "Health": d['pillars']['Health']
+            })
+        st.table(pd.DataFrame(week_data))
 
 except Exception as e:
-    st.error(f"Engine starting... please refresh in a moment.")
+    st.error(f"Engine Alignment Error: {e}")
+    st.info("Ensure coordinates and timezones are in the correct format.")
+
+st.caption("Custom Engine built for Python 3.13 | VedAstro API 2024.x")
