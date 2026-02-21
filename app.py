@@ -1,7 +1,7 @@
 import sys
 import types
 
-# --- 1. CRITICAL PYTHON 3.13 POLYFILL (Must stay at top) ---
+# --- 1. CRITICAL PYTHON 3.13 POLYFILL ---
 if "pkg_resources" not in sys.modules:
     mock_pkg = types.ModuleType("pkg_resources")
     mock_pkg.declare_namespace = lambda name: None
@@ -18,7 +18,7 @@ from vedastro import *
 st.set_page_config(page_title="Vedic Engine Pro", page_icon="🔱", layout="wide")
 
 # --- 3. SIDEBAR INPUTS ---
-st.sidebar.header("🌍 Birth & Current Data")
+st.sidebar.header("🌍 Location & Birth Data")
 nav_mode = st.sidebar.radio("View Mode", ["Daily Dashboard", "Weekly Forecast"])
 
 with st.sidebar.expander("Birth Details (Soul Blueprint)", expanded=True):
@@ -38,14 +38,17 @@ def get_vibe_engine(target_date):
     birth_loc = GeoLocation("Birth", b_lon, b_lat)
     curr_loc = GeoLocation("Current", c_lon, c_lat)
     
-    # Setup Times
-    birth_time = Time(f"{b_time.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {b_tz}", birth_loc)
-    # Target time normalized to UTC for calculation consistency
-    calc_time = Time(f"{target_date.strftime('%H:%M %d/%m/%Y')} +00:00", curr_loc)
+    # Precise Time Formatting for VedAstro Engine
+    birth_time_str = f"{b_time.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {b_tz}"
+    calc_time_str = f"{target_date.strftime('%H:%M %d/%m/%Y')} +00:00"
+    
+    birth_time = Time(birth_time_str, birth_loc)
+    calc_time = Time(calc_time_str, curr_loc)
 
     # A. CHANDRA LAGNA (Moon as Ascendant)
-    # Find Moon's sign index at birth (1-12)
-    b_moon_sign = Calculate.PlanetSignName(PlanetName.Moon, birth_time).value__
+    # Using .GetSignName() or .Name depending on the specific wrapper version
+    b_moon_sign_obj = Calculate.PlanetSign(PlanetName.Moon, birth_time)
+    b_moon_sign_value = b_moon_sign_obj.GetSignName().value__ 
     
     planets = [
         PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury,
@@ -56,42 +59,49 @@ def get_vibe_engine(target_date):
     houses_occupied = []
 
     for p in planets:
-        cur_sign = Calculate.PlanetSignName(p, calc_time).value__
-        # Relative House Logic: (Current - BirthMoon + 12) % 12 + 1
-        rel_house = (cur_sign - b_moon_sign + 12) % 12 + 1
+        # Get sign for the current transit
+        p_sign_obj = Calculate.PlanetSign(p, calc_time)
+        cur_sign_val = p_sign_obj.GetSignName().value__
+        cur_sign_name = p_sign_obj.GetSignName().name
+        
+        # Relative House Logic (Chandra Lagna)
+        rel_house = (cur_sign_val - b_moon_sign_value + 12) % 12 + 1
         houses_occupied.append(rel_house)
         
         planet_data.append({
             "Planet": p.name,
             "House": f"House {rel_house}",
-            "Sign": Calculate.PlanetSignName(p, calc_time).name,
+            "Sign": cur_sign_name,
             "Transit": "Direct" if p.name not in ["Rahu", "Ketu"] else "Retrograde"
         })
 
     # B. LIFE PILLAR LOGIC
-    # Mapping specific houses to pillars based on Chandra Lagna
+    # Simplified Vedic mapping for UI pillars
     pillars = {
-        "Work": "Actionable" if any(h in [1, 10, 11] for h in houses_occupied[:3]) else "Stable",
-        "Wealth": "Growth" if any(h in [2, 5, 9, 11] for h in houses_occupied[4:6]) else "Routine",
-        "Health": "High Energy" if any(h in [1, 5, 9] for h in houses_occupied) else "Conserve",
+        "Work": "High Action" if any(h in [1, 10, 11] for h in houses_occupied[:3]) else "Steady",
+        "Wealth": "Growth" if any(h in [2, 5, 9, 11] for h in houses_occupied[4:6]) else "Stable",
+        "Health": "Strong" if any(h in [1, 5, 9] for h in houses_occupied) else "Conserve",
         "Relations": "Social" if any(h in [3, 7, 11] for h in houses_occupied) else "Neutral"
     }
 
     # C. PRECISION TIMING
-    rahu = str(PanchangaCalculator.GetRahuKaalRange(calc_time))
-    gulika = str(PanchangaCalculator.GetGulikaKaalRange(calc_time))
+    try:
+        rahu = str(PanchangaCalculator.GetRahuKaalRange(calc_time))
+        gulika = str(PanchangaCalculator.GetGulikaKaalRange(calc_time))
+    except:
+        rahu, gulika = "Calculation Pending", "Calculation Pending"
     
     return {"metrics": planet_data, "pillars": pillars, "rahu": rahu, "gulika": gulika, "date": target_date}
 
 # --- 5. UI RENDERING ---
-st.title("☸️ Your Cosmic Intelligence")
+st.title("🔱 Your Cosmic Intelligence Engine")
 
 try:
     if nav_mode == "Daily Dashboard":
         data = get_vibe_engine(datetime.datetime.now())
         
-        # Pillars Row
-        st.subheader("🔮 Life Pillars")
+        # Life Pillars
+        st.subheader("🔮 Life Pillars (Chandra Lagna)")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("💼 Work", data['pillars']['Work'])
         c2.metric("💰 Wealth", data['pillars']['Wealth'])
@@ -99,33 +109,34 @@ try:
         c4.metric("❤️ Relationships", data['pillars']['Relations'])
 
         # Deep Metrics Table
-        st.subheader("📊 Deep Metrics (Chandra Lagna)")
-        st.dataframe(pd.DataFrame(data['metrics']), use_container_width=True)
+        st.subheader("📊 Full Astronomical Data")
+        st.table(pd.DataFrame(data['metrics']))
 
-        # Timing
+        # Timing Section
         st.divider()
         t1, t2 = st.columns(2)
         with t1:
-            st.error(f"🚫 **Rahu Kaal:** {data['rahu']}")
+            st.error(f"🚫 **Rahu Kaal (Avoid):** {data['rahu']}")
         with t2:
-            st.success(f"✅ **Gulika Kaal:** {data['gulika']}")
+            st.success(f"✅ **Gulika Kaal (Auspicious):** {data['gulika']}")
 
     else:
-        st.subheader("📅 7-Day Weekly Forecast")
-        week_data = []
+        st.subheader("📅 7-Day Weekly Forecast Table")
+        week_list = []
         for i in range(7):
-            day = datetime.datetime.now() + datetime.timedelta(days=i)
-            d = get_vibe_engine(day)
-            week_data.append({
-                "Date": d['date'].strftime("%a, %b %d"),
-                "Work": d['pillars']['Work'],
-                "Wealth": d['pillars']['Wealth'],
-                "Health": d['pillars']['Health']
+            d_target = datetime.datetime.now() + datetime.timedelta(days=i)
+            d_res = get_vibe_engine(d_target)
+            week_list.append({
+                "Date": d_res['date'].strftime("%a, %b %d"),
+                "Work": d_res['pillars']['Work'],
+                "Wealth": d_res['pillars']['Wealth'],
+                "Health": d_res['pillars']['Health'],
+                "Rahu Kaal": d_res['rahu']
             })
-        st.table(pd.DataFrame(week_data))
+        st.dataframe(pd.DataFrame(week_list), use_container_width=True)
 
 except Exception as e:
     st.error(f"Engine Alignment Error: {e}")
-    st.info("Ensure coordinates and timezones are in the correct format.")
+    st.info("Check if your Birth Timezone is in the format '+05:30' and coordinates are valid numbers.")
 
-st.caption("Custom Engine built for Python 3.13 | VedAstro API 2024.x")
+st.caption("Custom Engine for Python 3.13 | VedAstro API | Chandra Lagna Methodology")
