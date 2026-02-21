@@ -1,7 +1,6 @@
 import streamlit as st
 
 # --- 1. EMERGENCY FIX FOR PYTHON 3.13 ---
-# This bypasses the 'pkg_resources' error in the vedastro library
 try:
     import pkg_resources
 except ImportError:
@@ -14,7 +13,6 @@ except ImportError:
 # -------------------------------------
 
 from vedastro import *
-import VedAstro
 import datetime
 
 # --- 2. APP CONFIGURATION ---
@@ -42,11 +40,11 @@ def run_forecast(target_date):
     current_time = Time(now_str, location)
     
     # A. Tara Bala (Soul Filter) 
-    # Using fully qualified names to avoid attribute errors
-    birth_nak = VedAstro.AstronomicalCalculator.GetMoonNakshatra(birth_time)
-    today_nak = VedAstro.AstronomicalCalculator.GetMoonNakshatra(current_time)
+    # Using the standard Calculate class which is more stable in cloud
+    birth_nak = Calculate.MoonNakshatra(birth_time)
+    today_nak = Calculate.MoonNakshatra(current_time)
     
-    # Accessing the numeric values
+    # Accessing the numeric values via the NakshatraName enum
     b_num = int(birth_nak.NakshatraName.value__)
     t_num = int(today_nak.NakshatraName.value__)
     
@@ -68,7 +66,7 @@ def run_forecast(target_date):
     
     score = 40 
     score += 30 if tara_num in [2,4,6,8,9] else 10
-    score += 20 if str(m_house) in ["House1", "House3", "House6", "House11"] else 5
+    score += 20 if "1" in str(m_house) or "3" in str(m_house) or "6" in str(m_house) or "11" in str(m_house) else 5
     score += 10 if int(m_bindu) >= 5 else 0
     
     # D. Precision Timing
@@ -101,6 +99,6 @@ try:
             st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
 except Exception as e:
-    st.error(f"Engine is warming up. If this persists, check inputs. Error: {e}")
+    st.error(f"Waiting for engine... If this takes more than 10 seconds, check your birth details in the sidebar. (Error: {e})")
 
 st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
