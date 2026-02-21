@@ -53,14 +53,15 @@ def run_forecast(target_date):
   #  if count <= 0: count += 27
   #  tara_num = count % 9 or 9
 
-        # 1. Panchang & Soul Harmony (Hierarchy Filter 1 & 2)
+    # 1. Panchang & Soul Harmony (Hierarchy Filter 1 & 2)
     panchang = Calculate.PanchangaTable(current_time)
     
-    # Corrected: We use the index number (1-27) for the math to work
-    birth_star_num = int(Calculate.MoonNakshatra(birth_time).GetIndexNumber())
-    today_star_num = int(Calculate.MoonNakshatra(current_time).GetIndexNumber())
+    # Updated: We get the Nakshatra and then extract the index number specifically
+    birth_star_num = int(str(Calculate.MoonNakshatra(birth_time).GetIndexNumber()))
+    today_star_num = int(str(Calculate.MoonNakshatra(current_time).GetIndexNumber()))
     
     count = (today_star_num - birth_star_num + 1)
+
     if count <= 0: count += 27
     tara_num = count % 9 or 9
 
