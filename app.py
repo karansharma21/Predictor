@@ -18,9 +18,8 @@ import datetime
 # --- 3. APP CONFIG ---
 st.set_page_config(page_title="Vedic Daily Engine", page_icon="☸️", layout="wide")
 
-# --- 4. SAFE ATTRIBUTE EXTRACTOR ---
+# --- 4. SAFE EXTRACTORS ---
 def get_safe_attr(obj, attr_name, default="Unknown"):
-    if obj is None: return default
     try:
         if hasattr(obj, attr_name): return str(getattr(obj, attr_name))
         if hasattr(obj, '_data') and attr_name in obj._data: return str(obj._data[attr_name])
@@ -36,12 +35,12 @@ def get_geo_details(city_name):
         return None
 
 # --- 5. SIDEBAR ---
-st.sidebar.header("🕹️ View Controls")
-view_mode = st.sidebar.radio("Display Mode", ["Daily Dashboard", "Weekly Outlook"])
+st.sidebar.header("🕹️ Display")
+view_mode = st.sidebar.radio("View", ["Daily Dashboard", "Weekly Outlook"])
 
 st.sidebar.divider()
 st.sidebar.header("📍 Locations")
-curr_city_input = st.sidebar.text_input("Current City", "London")
+curr_city_input = st.sidebar.text_input("Current City (Today)", "London")
 geo_curr = get_geo_details(curr_city_input) or GeoLocation("London", -0.1278, 51.5074)
 
 birth_city_input = st.sidebar.text_input("Birth City", "Mumbai")
@@ -52,60 +51,61 @@ st.sidebar.header("👶 Birth Details")
 birth_date = st.sidebar.date_input("Birth Date", datetime.date(1990, 5, 15))
 birth_time_input = st.sidebar.time_input("Birth Time", datetime.time(10, 30))
 
+if st.sidebar.button("♻️ Force Sync Engine"):
+    st.cache_data.clear()
+    st.rerun()
+
 # --- 6. ENGINE CORE ---
 def get_cosmic_data(g_birth, g_curr, b_date, b_time_in, target_dt=None):
     if target_dt is None: target_dt = datetime.datetime.now()
     
-    # Precise Time Objects
-    b_dt_str = f"{b_time_in.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {get_safe_attr(g_birth, 'TimezoneStr', '+05:30')}"
-    b_time = Time(b_dt_str, g_birth)
+    # 1. Standardize Time (UTC Format for Engine)
+    tz_b = get_safe_attr(g_birth, 'TimezoneStr', '+05:30')
+    tz_c = get_safe_attr(g_curr, 'TimezoneStr', '+00:00')
     
-    c_dt_str = target_dt.strftime("%H:%M %d/%m/%Y ") + get_safe_attr(g_curr, 'TimezoneStr', '+00:00')
-    c_time = Time(c_dt_str, g_curr)
+    b_time = Time(f"{b_time_in.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {tz_b}", g_birth)
+    c_time = Time(target_dt.strftime("%H:%M %d/%m/%Y ") + tz_c, g_curr)
     
-    # Timing
+    # 2. Timing (Panchanga)
     try:
         rahu = PanchangaCalculator.GetRahuKaalRange(c_time)
         rahu_txt = f"{rahu.Start.GetFormattedTime()} - {rahu.End.GetFormattedTime()}"
         gulika = PanchangaCalculator.GetGulikaKaalRange(c_time)
         gulika_txt = f"{gulika.Start.GetFormattedTime()} - {gulika.End.GetFormattedTime()}"
     except:
-        rahu_txt = "Check Sidebar City"
-        gulika_txt = "Check Sidebar City"
+        rahu_txt = gulika_txt = "Calculating..."
 
-    # Deep Metrics & Life Categories
+    # 3. Deep Metrics (Planets)
     metrics = []
-    category_scores = {"Work": "Neutral", "Wealth": "Stable", "Health": "Good", "Relations": "Average"}
+    cats = {"Work": "Stable", "Wealth": "Stable", "Health": "Good", "Relations": "Average"}
     
     planets = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
                PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn]
     
     for p in planets:
         try:
-            # Force the engine to calculate house relative to birth moon
-            house_val = Calculate.PlanetTransitHouse(p, b_time, c_time)
-            sign_val = Calculate.PlanetTransitSign(p, c_time)
-            h_str = str(house_val)
-            metrics.append({"Planet": str(p), "House": h_str, "Sign": str(sign_val)})
+            # We use a combined call to reduce server load
+            house = Calculate.PlanetTransitHouse(p, b_time, c_time)
+            sign = Calculate.PlanetTransitSign(p, c_time)
+            h_str = str(house)
+            metrics.append({"Planet": str(p), "House": h_str, "Sign": str(sign)})
             
-            # Logic for Breakdown Categories
+            # Category Mapping
             if str(p) == "Moon":
-                if any(x in h_str for x in ["2", "11"]): category_scores["Wealth"] = "💹 High Potential"
-                if any(x in h_str for x in ["10", "6"]): category_scores["Work"] = "🚀 High Focus"
-                if "7" in h_str: category_scores["Relations"] = "❤️ Harmony"
-            if str(p) == "Mars" and any(x in h_str for x in ["6", "8", "12"]):
-                category_scores["Health"] = "⚠️ Low Energy"
+                if any(x in h_str for x in ["2", "11"]): cats["Wealth"] = "🚀 Gain Period"
+                if any(x in h_str for x in ["6", "10"]): cats["Work"] = "💼 High Focus"
+                if "7" in h_str: cats["Relations"] = "❤️ Harmony"
         except: continue
 
-    # Soul Score
+    # 4. Score Logic
     try:
         tara = int(PanchangaCalculator.GetTaraBala(b_time, c_time).value__)
         tithi = str(PanchangaCalculator.GetTithi(c_time).TithiName.name)
     except:
-        tara, tithi = 1, "Unknown"
+        tara, tithi = 1, "Calculating..."
 
     score = 40 + (45 if tara in [2,4,6,8,9] else 10)
-    return {"score": score, "rahu": rahu_txt, "gulika": gulika_txt, "metrics": metrics, "tara": tara, "tithi": tithi, "cats": category_scores}
+    return {"score": score, "rahu": rahu_txt, "gulika": gulika_txt, "metrics": metrics, "tara": tara, "tithi": tithi, "cats": cats}
 
 # --- 7. UI DISPLAY ---
 st.title("☸️ Vedic Daily Engine")
@@ -114,16 +114,16 @@ try:
     data = get_cosmic_data(geo_birth, geo_curr, birth_date, birth_time_input)
     
     if view_mode == "Daily Dashboard":
-        # POWER SCORE
+        # TOP ROW: SCORE
         st.metric("Power Score", f"{data['score']}/100")
         st.progress(data['score'] / 100)
 
-        # TIMING
+        # SECOND ROW: TIMING
         col1, col2 = st.columns(2)
-        col1.error(f"🚫 **Rahu Kaal:**\n{data['rahu']}")
-        col2.success(f"✅ **Gulika Kaal:**\n{data['gulika']}")
+        col1.error(f"🚫 **Rahu Kaal:**\n\n{data['rahu']}")
+        col2.success(f"✅ **Gulika Kaal:**\n\n{data['gulika']}")
 
-        # CATEGORY BREAKDOWN
+        # THIRD ROW: CATEGORIES
         st.divider()
         st.subheader("🔮 Life Category Forecast")
         c1, c2, c3, c4 = st.columns(4)
@@ -132,25 +132,24 @@ try:
         c3.info(f"🧘 **Health**\n\n{data['cats']['Health']}")
         c4.info(f"❤️ **Relations**\n\n{data['cats']['Relations']}")
 
-        # DEEP METRICS
+        # FOURTH ROW: DEEP METRICS
         st.divider()
         st.subheader("📊 Deep Astrological Metrics")
         if data['metrics']:
             st.table(data['metrics'])
         else:
-            st.warning("Planetary houses are currently being mapped. Try a different city to trigger a fresh sync.")
+            st.warning("Engine is mapping planetary houses. If this persists, tap 'Force Sync' in the sidebar.")
 
     else:
-        st.subheader("📅 7-Day Forecast")
+        st.subheader("📅 7-Day Outlook")
         forecasts = []
-        curr_dt = datetime.datetime.now()
         for i in range(7):
-            f_dt = curr_dt + datetime.timedelta(days=i)
+            f_dt = datetime.datetime.now() + datetime.timedelta(days=i)
             f_d = get_cosmic_data(geo_birth, geo_curr, birth_date, birth_time_input, f_dt)
-            forecasts.append({"Day": f_dt.strftime("%a, %d %b"), "Power Score": f_d['score'], "Lunar Phase": f_d['tithi']})
-        st.dataframe(forecasts, use_container_width=True, hide_index=True)
+            forecasts.append({"Day": f_dt.strftime("%a, %d %b"), "Score": f_d['score'], "Phase": f_d['tithi']})
+        st.table(forecasts)
 
 except Exception as e:
-    st.error(f"Synchronizing... {e}")
+    st.error(f"Engine connecting... {e}")
 
-st.caption("Optimized for iPhone. Data: VedAstro Engine.")
+st.caption("Customized for iPhone Home Screen. Powered by VedAstro.")
