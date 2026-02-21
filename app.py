@@ -13,7 +13,6 @@ except ImportError:
 # -------------------------------------
 
 from vedastro import *
-import VedAstro # Explicitly import the namespace
 import datetime
 
 # --- 2. APP CONFIGURATION ---
@@ -41,11 +40,11 @@ def run_forecast(target_date):
     current_time = Time(now_str, location)
     
     # A. Tara Bala (Soul Filter) 
-    # Using the Full Namespace path for the cloud server
-    birth_nak = VedAstro.PanchangaCalculator.GetMoonNakshatra(birth_time)
-    today_nak = VedAstro.PanchangaCalculator.GetMoonNakshatra(current_time)
+    # Using the direct access that works across all versions
+    birth_nak = AstronomicalCalculator.GetMoonNakshatra(birth_time)
+    today_nak = AstronomicalCalculator.GetMoonNakshatra(current_time)
     
-    # Extracting the 1-27 index value
+    # Extracting numeric index
     b_num = int(birth_nak.NakshatraName.value__)
     t_num = int(today_nak.NakshatraName.value__)
     
@@ -53,8 +52,7 @@ def run_forecast(target_date):
     if count <= 0: count += 27
     tara_num = count % 9 or 9
 
-    # B. Daily Color
-    # Use the general Calculate class for these stable methods
+    # B. Daily Color & Timing
     day_of_week = Calculate.DayOfWeek(current_time)
     color_map = {
         "Sunday": "Orange", "Monday": "White", "Tuesday": "Red", 
@@ -69,7 +67,7 @@ def run_forecast(target_date):
     score += 30 if tara_num in [2,4,6,8,9] else 10
     score += 20 if any(h in str(m_house) for h in ["1", "3", "6", "11"]) else 5
     
-    # D. Precision Timing
+    # D. Timing
     rahu_kaal = Calculate.RahuKaalRange(current_time)
     hora = Calculate.CurrentHora(current_time)
     
@@ -89,7 +87,6 @@ try:
             st.write(f"🚫 **Rahu Kaal:** {rahu}")
         with col2:
             st.write(f"🎨 **Wear:** {color}")
-            # Get current day
             now_time = Time(datetime.datetime.now().strftime('%H:%M %d/%m/%Y +00:00'), location)
             st.write(f"📅 **Day:** {Calculate.DayOfWeek(now_time)}")
 
@@ -101,6 +98,6 @@ try:
             st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
 except Exception as e:
-    st.error(f"Connecting to the stars... (Detail: {e})")
+    st.error(f"Waiting for alignment... (Detail: {e})")
 
 st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
