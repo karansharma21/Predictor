@@ -16,7 +16,7 @@ from vedastro import *
 import datetime
 
 # --- 3. APP CONFIG ---
-st.set_page_config(page_title="Vedic Data Engine", page_icon="☸️", layout="wide")
+st.set_page_config(page_title="Vedic Daily", page_icon="☸️", layout="wide")
 
 # --- 4. DATA FETCHERS ---
 @st.cache_data
@@ -27,7 +27,7 @@ def get_geo_details(city_name):
     except:
         return None
 
-def get_safe_attr(obj, attr_name, default="0"):
+def get_safe_attr(obj, attr_name, default="+00:00"):
     try:
         if hasattr(obj, attr_name): return str(getattr(obj, attr_name))
         if hasattr(obj, '_data') and attr_name in obj._data: return str(obj._data[attr_name])
@@ -35,132 +35,124 @@ def get_safe_attr(obj, attr_name, default="0"):
     return default
 
 # --- 5. SIDEBAR ---
-st.sidebar.header("🕹️ View Toggle")
+st.sidebar.header("🕹️ Controls")
 view_mode = st.sidebar.radio("View", ["Daily Dashboard", "Weekly Outlook"])
 
 st.sidebar.divider()
 st.sidebar.header("📍 Locations")
-curr_city_input = st.sidebar.text_input("Current City", "London")
-geo_curr = get_geo_details(curr_city_input) or GeoLocation("London", -0.1278, 51.5074)
+curr_city = st.sidebar.text_input("Current City", "London")
+geo_curr = get_geo_details(curr_city) or GeoLocation("London", -0.1278, 51.5074)
 
-birth_city_input = st.sidebar.text_input("Birth City", "Mumbai")
-geo_birth = get_geo_details(birth_city_input) or GeoLocation("Mumbai", 72.8777, 19.0760)
+birth_city = st.sidebar.text_input("Birth City", "Mumbai")
+geo_birth = get_geo_details(birth_city) or GeoLocation("Mumbai", 72.8777, 19.0760)
 
 st.sidebar.divider()
 st.sidebar.header("👶 Birth Data")
 birth_date = st.sidebar.date_input("Birth Date", datetime.date(1990, 5, 15))
 birth_time_input = st.sidebar.time_input("Birth Time", datetime.time(10, 30))
 
-# --- 6. CORE CALCULATIONS ---
-def get_full_astrometry(g_birth, g_curr, b_date, b_time_in, target_dt=None):
+# --- 6. CORE LOGIC ---
+def get_engine_data(g_birth, g_curr, b_date, b_time_in, target_dt=None):
     if target_dt is None: target_dt = datetime.datetime.now()
     
-    # Setup Time Objects
+    # Setup Times
     tz_b = get_safe_attr(g_birth, 'TimezoneStr', '+05:30')
     tz_c = get_safe_attr(g_curr, 'TimezoneStr', '+00:00')
     b_time = Time(f"{b_time_in.strftime('%H:%M')} {b_date.strftime('%d/%m/%Y')} {tz_b}", g_birth)
     c_time = Time(target_dt.strftime("%H:%M %d/%m/%Y ") + tz_c, g_curr)
     
-    # 1. Planetary Data (The "Deep Metrics")
-    planet_data = []
-    planets = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
-               PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn, PlanetName.Rahu, PlanetName.Ketu]
-    
-    try:
-        # Get Birth Moon Sign for House Calculation (Chandra Lagna)
-        b_moon_sign = int(Calculate.PlanetTransitSign(PlanetName.Moon, b_time).GetSignName().value__)
-        
-        for p in planets:
-            # Get Current position details
-            sign_obj = Calculate.PlanetTransitSign(p, c_time)
-            sign_name = str(sign_obj.GetSignName().name)
-            sign_num = int(sign_obj.GetSignName().value__)
-            
-            # Calculate House Position (Relative to Birth Moon)
-            house_num = (sign_num - b_moon_sign + 1)
-            if house_num <= 0: house_num += 12
-            
-            planet_data.append({
-                "Planet": str(p),
-                "House": house_num,
-                "Zodiac Sign": sign_name,
-                "Status": "Direct" # Transit status logic can be expanded
-            })
-    except: pass
-
-    # 2. Timing
+    # 1. Timing
     try:
         rahu = PanchangaCalculator.GetRahuKaalRange(c_time)
         rahu_txt = f"{rahu.Start.GetFormattedTime()} - {rahu.End.GetFormattedTime()}"
         gulika = PanchangaCalculator.GetGulikaKaalRange(c_time)
         gulika_txt = f"{gulika.Start.GetFormattedTime()} - {gulika.End.GetFormattedTime()}"
     except:
-        rahu_txt = gulika_txt = "Syncing..."
+        rahu_txt = gulika_txt = "Calculating..."
 
-    # 3. Score & Tithi
+    # 2. Score & Tithi
     try:
-        tara = int(PanchangaCalculator.GetTaraBala(b_time, c_time).value__)
+        tara_val = int(PanchangaCalculator.GetTaraBala(b_time, c_time).value__)
         tithi = str(PanchangaCalculator.GetTithi(c_time).TithiName.name)
     except:
-        tara, tithi = 1, "Unknown"
+        tara_val, tithi = 1, "Unknown"
 
-    score = 40 + (45 if tara in [2,4,6,8,9] else 10)
+    # 3. Planets & Pillars
+    planets_list = []
+    pillars = {"Work": "Stable", "Wealth": "Neutral", "Health": "Good", "Relations": "Average"}
     
-    return {
-        "score": score,
-        "rahu": rahu_txt,
-        "gulika": gulika_txt,
-        "planets": planet_data,
-        "tithi": tithi,
-        "tara": tara
-    }
+    try:
+        # Get Sign Numbers directly
+        b_moon_sign = int(Calculate.PlanetTransitSign(PlanetName.Moon, b_time).GetSignName().value__)
+        
+        plist = [PlanetName.Sun, PlanetName.Moon, PlanetName.Mars, PlanetName.Mercury, 
+                 PlanetName.Jupiter, PlanetName.Venus, PlanetName.Saturn]
+        
+        for p in plist:
+            s_obj = Calculate.PlanetTransitSign(p, c_time).GetSignName()
+            s_num = int(s_obj.value__)
+            # House Math
+            h_num = (s_num - b_moon_sign + 1)
+            if h_num <= 0: h_num += 12
+            
+            planets_list.append({"Planet": str(p), "House": h_num, "Sign": str(s_obj.name)})
+            
+            # Update Pillars
+            if str(p) == "Moon":
+                if h_num in [2, 11]: pillars["Wealth"] = "💹 High Potential"
+                if h_num in [10, 6]: pillars["Work"] = "🚀 Peak Focus"
+                if h_num == 7: pillars["Relations"] = "❤️ Harmonic"
+            if str(p) == "Mars" and h_num in [6, 8, 12]:
+                pillars["Health"] = "⚠️ Low Energy"
+    except:
+        pass
+
+    score = 40 + (45 if tara_val in [2,4,6,8,9] else 10)
+    return {"score": score, "rahu": rahu_txt, "gulika": gulika_txt, "planets": planets_list, "pillars": pillars, "tara": tara_val, "tithi": tithi}
 
 # --- 7. UI RENDER ---
-st.title("☸️ Deep Vedic Intelligence")
+st.title("☸️ Vedic Intelligence Engine")
 
 try:
-    data = get_full_astrometry(geo_birth, geo_curr, birth_date, birth_time_input)
-    
+    data = get_engine_data(geo_birth, geo_curr, birth_date, birth_time_input)
+
     if view_mode == "Daily Dashboard":
-        # ROW 1: SCORE & TITHI
-        c1, c2 = st.columns([2,1])
-        with c1:
-            st.metric("Power Score", f"{data['score']}/100")
-            st.progress(data['score'] / 100)
-        with c2:
-            st.write(f"**Lunar Day (Tithi):**\n{data['tithi']}")
-            st.write(f"**Star Strength:**\n{data['tara']}/9")
+        # Score
+        st.metric("Power Score", f"{data['score']}/100")
+        st.progress(data['score'] / 100)
 
-        # ROW 2: TIMING
-        st.subheader("⏳ Precision Windows")
-        t1, t2 = st.columns(2)
-        t1.error(f"🚫 **Rahu Kaal (Avoid):**\n{data['rahu']}")
-        t2.success(f"✅ **Gulika Kaal (Good):**\n{data['gulika']}")
+        # Timing
+        c1, c2 = st.columns(2)
+        c1.error(f"🚫 **Rahu Kaal:**\n{data['rahu']}")
+        c2.success(f"✅ **Gulika Kaal:**\n{data['gulika']}")
 
-        # ROW 3: DEEP METRICS TABLE
+        # Pillars
         st.divider()
-        st.subheader("📊 Planetary Transit Data (Gochar)")
-        st.write("Calculated using **Chandra Lagna** (Birth Moon as 1st House).")
+        st.subheader("🔮 Life Pillars")
+        p1, p2, p3, p4 = st.columns(4)
+        p1.info(f"💼 **Work**\n\n{data['pillars']['Work']}")
+        p2.info(f"💰 **Wealth**\n\n{data['pillars']['Wealth']}")
+        p3.info(f"🧘 **Health**\n\n{data['pillars']['Health']}")
+        p4.info(f"❤️ **Relations**\n\n{data['pillars']['Relations']}")
+
+        # Planet Table
+        st.divider()
+        st.subheader("📊 Deep Planetary Transits")
         if data['planets']:
             st.table(data['planets'])
         else:
-            st.warning("Planet data is initializing. If empty, please check your Birth City input.")
+            st.warning("⚠️ Data Syncing: Please ensure both cities are set in the sidebar.")
 
     else:
-        # WEEKLY VIEW
-        st.subheader("📅 7-Day Data Forecast")
-        week_data = []
+        st.subheader("📅 Weekly Forecast")
+        week_list = []
         for i in range(7):
-            day_dt = datetime.datetime.now() + datetime.timedelta(days=i)
-            day_info = get_full_astrometry(geo_birth, geo_curr, birth_date, birth_time_input, day_dt)
-            week_data.append({
-                "Date": day_dt.strftime("%a, %d %b"),
-                "Score": day_info['score'],
-                "Tithi": day_info['tithi']
-            })
-        st.dataframe(week_data, use_container_width=True, hide_index=True)
+            dt = datetime.datetime.now() + datetime.timedelta(days=i)
+            d = get_engine_data(geo_birth, geo_curr, birth_date, birth_time_input, dt)
+            week_list.append({"Date": dt.strftime("%a %d"), "Score": d['score'], "Tithi": d['tithi']})
+        st.dataframe(week_list, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"System Connection Error: {e}")
+    st.error(f"Waiting for engine... {e}")
 
-st.caption("Custom Engine for iPhone. Methodology: Sripada Saptarishi & Swiss Ephemeris.")
+st.caption("Data provided via VedAstro & Chandra Lagna calculations.")
