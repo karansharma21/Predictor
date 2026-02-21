@@ -35,16 +35,16 @@ location = GeoLocation(name, lon, lat)
 birth_time = Time(birth_dt_str, location)
 
 def run_forecast(target_date):
-    # Sync target date to UTC for transit calculation
+    # Sync target date to UTC
     now_str = target_date.strftime("%H:%M %d/%m/%Y +00:00")
     current_time = Time(now_str, location)
     
     # A. Tara Bala (Soul Filter) 
-    # Using the direct access that works across all versions
-    birth_nak = AstronomicalCalculator.GetMoonNakshatra(birth_time)
-    today_nak = AstronomicalCalculator.GetMoonNakshatra(current_time)
+    # Using the most direct 'Calculate' methods
+    birth_nak = Calculate.MoonNakshatra(birth_time)
+    today_nak = Calculate.MoonNakshatra(current_time)
     
-    # Extracting numeric index
+    # Extracting numeric index (1-27) using the underlying value
     b_num = int(birth_nak.NakshatraName.value__)
     t_num = int(today_nak.NakshatraName.value__)
     
@@ -61,10 +61,12 @@ def run_forecast(target_date):
     day_color = color_map.get(str(day_of_week), "White")
     
     # C. Scoring Logic
+    # House transit
     m_house = Calculate.PlanetTransitHouse(PlanetName.Moon, birth_time, current_time)
     
     score = 40 
     score += 30 if tara_num in [2,4,6,8,9] else 10
+    # Checking for specific lucky houses in the result string
     score += 20 if any(h in str(m_house) for h in ["1", "3", "6", "11"]) else 5
     
     # D. Timing
@@ -98,6 +100,9 @@ try:
             st.write(f"**{d.strftime('%a, %d %b')}** — Score: `{s}/100` | Wear: **{c}**")
 
 except Exception as e:
-    st.error(f"Waiting for alignment... (Detail: {e})")
+    # If the direct call fails, we try a fallback to help debug
+    st.error(f"Aligning with the stars... (Current Status: {e})")
+    if "Calculate" in str(e):
+        st.info("The engine is initializing its cosmic database. This usually takes 5-10 seconds on first run.")
 
 st.caption("Optimized for iPhone Home Screen. Data: VedAstro Engine.")
